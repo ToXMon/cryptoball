@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { Balls, Countdown, Faucet, Stage, TicketFace, lazyScene } from "./components";
-import { dateTime, explorer, go, num, pad, quickPick, short, sol, useAsync } from "./lib";
-import { buyTicket, describeError, fetchCampaign, fetchCampaigns, fetchTicket, fetchTickets, fundingNeeded, getBalance, isFundingError, payout, refundTicket, type Campaign, type Ticket } from "./program";
+import { dateTime, explorer, go, num, pad, quickPick, short, sol, useAsync, FUNDING_COPY } from "./lib";
+import { buyTicket, describeError, fetchCampaign, fetchCampaigns, fetchTicket, fetchTickets, fundingNeeded, getBalance, needsFunding, payout, refundTicket, type Campaign, type Ticket } from "./program";
 import { useWalletDialog } from "./Wallet";
 
 // Code-split: three.js only loads when a stage scrolls into view on confirmation / results.
@@ -161,28 +161,38 @@ function Checkout({ c, cart, total, fee, onBought }: { c: Campaign; cart: Carton
   const [err, setErr] = useState<unknown>();
   const [progress, setProgress] = useState(0);
   const [done, setDone] = useState<Ticket[]>([]);
+  const [balance, setBalance] = useState<bigint>();
   const buyer = publicKey?.toBase58();
   const wallet = { publicKey, sendTransaction };
   const needed = fundingNeeded(c.priceLamports, cart.length);
-  const balance = useAsync(() => (buyer ? getBalance(buyer) : Promise.resolve(undefined)), [buyer]);
-  const [unfunded, setUnfunded] = useState(false);
-  const short = !!buyer && (unfunded || (balance.data != null && balance.data < needed));
+  useEffect(() => {
+    let live = true;
+    if (!buyer) { setBalance(undefined); return; }
+    getBalance(buyer).then(
+      (lamports) => { if (live) setBalance(lamports); },
+      () => { if (live) setBalance(undefined); },
+    );
+    return () => { live = false; };
+  }, [buyer]);
 
   // R-82: the app only ever talks to the devnet RPC (Wallets.tsx), so the cluster is fixed; the adapter has no cluster
   // readout, so the wallet-side check lives in the real program adapter when signing.
   async function pay() {
     if (!buyer) return openWallet();
-    // A brand new passkey wallet cannot pay even the fee: show the funding state instead of a failed transaction.
-    if (balance.data != null && balance.data < needed) { setUnfunded(true); return; }
     setBusy(true); setErr(undefined); setDone([]); setProgress(0);
     const bought: Ticket[] = [];
     try {
+      // A brand new passkey wallet cannot pay even the fee: re-read the balance, since the last read may predate the
+      // funding the user just did in the faucet's tab, and show the funding state instead of a failed transaction.
+      const have = await getBalance(buyer);
+      setBalance(have);
+      if (needsFunding(have, needed)) return;
       // One buy_ticket transaction per carton (design.md section 12, risk 2).
       for (const k of cart) { bought.push(await buyTicket(buyer, c.id, k.numbers, k.bonus!, wallet)); setProgress(bought.length); }
       sessionStorage.setItem("cb-last", JSON.stringify(bought));
       go(`ticket/${c.id}/${bought[0].index}`);
     } catch (e) {
-      if (isFundingError(e)) setUnfunded(true); else setErr(e);
+      setErr(e);
       if (bought.length) { sessionStorage.setItem("cb-last", JSON.stringify(bought)); setDone(bought); onBought(bought.length); }
     } finally { setBusy(false); }
   }
@@ -200,7 +210,7 @@ function Checkout({ c, cart, total, fee, onBought }: { c: Campaign; cart: Carton
         {busy ? `Confirming ${progress + 1} of ${cart.length}…` : buyer ? `Pay ${sol(total)}` : "Connect wallet to pay"}
       </button>
       {err != null && <Err e={err} />}
-      {short && <Faucet address={buyer} needed={needed} balance={balance.data} />}
+      {buyer != null && needsFunding(balance, needed) && <Faucet address={buyer} note={FUNDING_COPY.short(balance, needed)} />}
       {busy && <p className="cb-muted" aria-live="polite">Approve each ticket in your wallet.</p>}
     </div>
   );

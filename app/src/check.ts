@@ -1,7 +1,7 @@
 // Smallest runnable check for the pure logic: `pnpm test`.
 import assert from "node:assert/strict";
-import { quickPick, parts, FUNDING_COPY } from "./lib.ts";
-import { payout, ERROR_COPY, buyTicket, ProgramError, PROGRAM_ID, describeError, fundingNeeded, isFundingError, FAUCET_URL, FEE_MARGIN_LAMPORTS, FUNDING_ERROR, DEVNET_RPC } from "./program.ts";
+import { quickPick, parts, FUNDING_COPY, sol } from "./lib.ts";
+import { payout, ERROR_COPY, buyTicket, ProgramError, PROGRAM_ID, describeError, fundingNeeded, isFundingError, FAUCET_URL, FEE_MARGIN_LAMPORTS, FUNDING_ERROR, DEVNET_RPC, needsFunding } from "./program.ts";
 import { readFileSync } from "node:fs";
 import { accountFromPrfOutput } from "./passkeyWallet.ts";
 
@@ -26,6 +26,15 @@ assert.equal(FAUCET_URL, "https://faucet.solana.com");
 assert.ok(!isFundingError(new Error("Sales for this draw have closed.")));
 assert.ok(isFundingError(new Error("Transaction simulation failed: Attempt to debit an account but found no record of a prior credit.")));
 assert.ok(isFundingError(new Error("insufficient funds for fee")));
+// The funding state is decided by the live read and the live cart total, so one balance flips both ways as the cart
+// changes and nothing latches: a wallet that can cover the order never keeps seeing "Get devnet SOL".
+const funded = 110_000_000n; // exactly one ticket plus the fee margin
+assert.equal(needsFunding(0n, fundingNeeded(100_000_000n, 2)), true);
+assert.equal(needsFunding(funded, fundingNeeded(100_000_000n, 2)), true); // cart grew past what the wallet holds
+assert.equal(needsFunding(funded, fundingNeeded(100_000_000n, 1)), false); // same balance, cart shrank back
+assert.equal(needsFunding(250_000_000n, fundingNeeded(100_000_000n, 2)), false);
+assert.equal(needsFunding(undefined, fundingNeeded(100_000_000n, 1)), false); // no read yet: no claim about the wallet
+assert.equal(FUNDING_COPY.short(funded, fundingNeeded(100_000_000n, 2)), `This wallet has ${sol(funded)}. One checkout needs ${sol(210_000_000n)}: the ticket plus a small fee margin.`);
 assert.equal(describeError(new Error("Attempt to debit an account but found no record of a prior credit.")), FUNDING_ERROR);
 assert.ok(!/prior credit/i.test(describeError(new Error("Attempt to debit an account but found no record of a prior credit."))));
 assert.match(FUNDING_COPY.short(0n, 110_000_000n), /0 SOL/);

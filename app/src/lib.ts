@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 export const FUNDING_COPY = {
   heading: "Get devnet SOL",
   short: (balance: bigint, needed: bigint) => `This wallet has ${sol(balance)}. One checkout needs ${sol(needed)}: the ticket plus a small fee margin.`,
-  enough: (balance: bigint) => `This wallet has ${sol(balance)}.`,
   faucet: "The faucet is run by Solana Labs and hands out free devnet test SOL. It is devnet play money: no value, cannot be withdrawn or sold.",
   paste: "Paste this address into the faucet to claim free devnet test SOL for this wallet.",
 } as const;

@@ -49,9 +49,15 @@ export const FEE_MARGIN_LAMPORTS = 10_000_000n; // 0.01 SOL
 /** What a checkout actually needs: ticket price(s) plus the fee margin. */
 export const fundingNeeded = (priceLamports: bigint, count = 1) => priceLamports * BigInt(count) + FEE_MARGIN_LAMPORTS;
 
+/**
+ * Whether a balance read leaves a checkout short. A pure function of the current read and the current cart total, so
+ * shrinking the cart clears the funding prompt and growing it raises one again; an unknown balance claims nothing.
+ */
+export const needsFunding = (balance: bigint | undefined, needed: bigint): balance is bigint => balance != null && balance < needed;
+
 /** Raw RPC failures that really mean "this wallet has no money" (an unfunded devnet wallet). */
 export const isFundingError = (e: unknown) =>
-  /prior credit|insufficient|attempt to debit/i.test(e instanceof Error ? e.message : String(e));
+  /prior credit|insufficient/i.test(e instanceof Error ? e.message : String(e));
 
 /** The one sentence an unfunded wallet gets instead of raw RPC simulation text. */
 export const FUNDING_ERROR = "This wallet does not have enough devnet SOL yet. Get free devnet SOL from the faucet, then try again.";

@@ -1,7 +1,7 @@
 import { createContext, useContext, useRef, useState, type ReactNode } from "react";
 import { ConnectionProvider, WalletProvider, useWallet } from "@solana/wallet-adapter-react";
 import { WalletReadyState } from "@solana/wallet-adapter-base";
-import { short, sol, useAsync } from "./lib";
+import { short, sol, useAsync, FUNDING_COPY } from "./lib";
 import { Faucet } from "./components";
 import { getBalance } from "./program";
 import { passkeyAddress, passkeyErrorText, registerPasskeyWallet, revealRecoveryPhrase } from "./passkeyWallet";
@@ -17,12 +17,14 @@ export const useWalletDialog = () => useContext(Ctx);
 export function Wallets({ children }: { children: ReactNode }) {
   const ref = useRef<HTMLDialogElement>(null);
   const [err, setErr] = useState<string>();
+  const [opens, setOpens] = useState(0);
+  const open = () => { setOpens((n) => n + 1); ref.current?.showModal(); };
   return (
     <ConnectionProvider endpoint={DEVNET_RPC}>
       <WalletProvider wallets={[]} autoConnect onError={(e) => setErr(passkeyErrorText(e))}>
-        <Ctx.Provider value={() => ref.current?.showModal()}>
+        <Ctx.Provider value={open}>
           {children}
-          <WalletDialog dialogRef={ref} error={err} clearError={() => setErr(undefined)} />
+          <WalletDialog dialogRef={ref} error={err} clearError={() => setErr(undefined)} opens={opens} />
         </Ctx.Provider>
       </WalletProvider>
     </ConnectionProvider>
@@ -46,10 +48,10 @@ function Balance({ address }: { address: string }) {
   const { data } = useAsync(() => getBalance(address), [address]);
   if (data == null) return null;
   if (data > 0n) return <p className="cb-muted">Devnet balance: <span className="cb-num">{sol(data)}</span></p>;
-  return <Faucet address={address} />;
+  return <Faucet address={address} note={FUNDING_COPY.paste} />;
 }
 
-function WalletDialog({ dialogRef, error, clearError }: { dialogRef: React.RefObject<HTMLDialogElement | null>; error?: string; clearError: () => void }) {
+function WalletDialog({ dialogRef, error, clearError, opens }: { dialogRef: React.RefObject<HTMLDialogElement | null>; error?: string; clearError: () => void; opens: number }) {
   const { wallets, select, disconnect, publicKey } = useWallet();
   const [phrase, setPhrase] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -75,7 +77,7 @@ function WalletDialog({ dialogRef, error, clearError }: { dialogRef: React.RefOb
       {publicKey ? (
         <>
           <p className="cb-num cb-addr">{publicKey.toBase58()}</p>
-          <Balance address={publicKey.toBase58()} />
+          <Balance key={opens} address={publicKey.toBase58()} />
           {publicKey.toBase58() === passkeyAddress() && (
             <button type="button" className="cb-btn cb-btn--ghost" disabled={busy} onClick={() => void backup()}>{busy ? "Checking…" : "Show recovery phrase"}</button>
           )}
