@@ -27,6 +27,9 @@ pub const MIN_TICKET_PRICE_LAMPORTS: u64 = 2_000_000;
 /// Seconds after commit_draw before anyone may cancel an unrevealed draw (placeholder).
 pub const REVEAL_TIMEOUT_SECS: i64 = 3_600;
 
+/// Static metadata uri for every ticket NFT (DEVNET PLACEHOLDER; never trusted by the program).
+pub const TICKET_URI: &str = "https://cryptoball.invalid/ticket.json";
+
 /// Pinned external program ids (never read from instruction accounts). Source: docs/design.md section 10.
 pub const MPL_CORE_ID: Pubkey = pubkey!("CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d");
 /// Switchboard On-Demand, devnet. Mainnet is `SBondMDrcV3K4kxZR1HNVT7osZxAHVHgYXL5Ze1oMUv` (out of MVP scope).
