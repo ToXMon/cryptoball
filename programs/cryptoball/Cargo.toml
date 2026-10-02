@@ -1,0 +1,29 @@
+[package]
+name = "cryptoball"
+version = "0.1.0"
+description = "Cryptoball: Solana raffle-style crypto lottery (devnet MVP)"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "cryptoball"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ident = []
+no-log-ix-name = []
+anchor-debug = []
+custom-heap = []
+custom-panic = []
+idl-build = ["anchor-lang/idl-build"]
+
+[dependencies]
+# Pins per docs/design.md section 10 (versions verified against crates.io 2026-10-01).
+anchor-lang = "=0.32.1"
+mpl-core = { version = "=0.12.1", default-features = false, features = ["anchor-0-32"] }
+# `devnet` feature selects the devnet Switchboard program id at compile time (the crate's
+# runtime SB_ENV check does not exist on-chain). Mainnet build = different feature set, out of MVP scope.
+switchboard-on-demand = { version = "=0.13.0", default-features = false, features = ["solana-v2", "devnet"] }
