@@ -1,14 +1,28 @@
 import { useEffect, useState } from "react";
+import type { Funding } from "./program";
 
 /** Copy for the funding helper (components.tsx). Amounts go through the same Intl formatter as the rest of the app. */
 export const FUNDING_COPY = {
   heading: "Get devnet SOL",
+  unreadHeading: "Check your devnet balance",
   short: (balance: bigint, needed: bigint) => `This wallet has ${sol(balance)}. One checkout needs ${sol(needed)}: the ticket plus a small fee margin.`,
-  unread: "This wallet's devnet balance could not be read just now. Check it again, or paste this address into the faucet.",
+  empty: "This wallet has 0 devnet SOL, so it cannot pay for a ticket yet. Paste this address into the faucet to claim free devnet test SOL for it.",
+  unread: "This wallet's devnet balance could not be read just now, so the app cannot tell whether it can pay. Read it again in a moment.",
   recheck: "Check balance again",
   faucet: "The faucet is run by Solana Labs and hands out free devnet test SOL. It is devnet play money: no value, cannot be withdrawn or sold.",
-  paste: "Paste this address into the faucet to claim free devnet test SOL for this wallet.",
 } as const;
+
+/**
+ * The one rule the checkout card and the wallet dialog card both render from, so they cannot drift apart: only a read
+ * that came back may claim anything about the wallet. A read that failed gets the recheck heading and copy, never the
+ * faucet heading and never the paste-into-the-faucet line. Nothing to show is `undefined`.
+ */
+export const fundingCopy = (fund: Funding): { heading: string; note: string } | undefined => {
+  if (fund.kind === "unreadable") return { heading: FUNDING_COPY.unreadHeading, note: FUNDING_COPY.unread };
+  if (fund.kind === "empty") return { heading: FUNDING_COPY.heading, note: FUNDING_COPY.empty };
+  if (fund.kind === "short") return { heading: FUNDING_COPY.heading, note: FUNDING_COPY.short(fund.balance, fund.needed) };
+  return undefined;
+};
 
 const usd = new Intl.NumberFormat("en-US", { maximumFractionDigits: 4 });
 const dt = new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" });

@@ -1,7 +1,6 @@
 // Smallest runnable check for the pure logic: `pnpm test`.
 import assert from "node:assert/strict";
-import { quickPick, parts, FUNDING_COPY, sol } from "./lib.ts";
-import {  } from "./lib.ts";
+import { quickPick, parts, FUNDING_COPY, sol, fundingCopy } from "./lib.ts";
 import { payout, ERROR_COPY, buyTicket, ProgramError, PROGRAM_ID, describeError, fundingNeeded, isFundingError, FAUCET_URL, FEE_MARGIN_LAMPORTS, FUNDING_ERROR, DEVNET_RPC, needsFunding, funding, CARTON_COST_LAMPORTS } from "./program.ts";
 import { readFileSync } from "node:fs";
 import { accountFromPrfOutput } from "./passkeyWallet.ts";
@@ -44,7 +43,7 @@ assert.deepEqual(funding(0n, false, short), { kind: "short", balance: 0n, needed
 assert.equal(funding(funded, false, short).kind, "short"); // cart grew past what the wallet holds
 assert.equal(funding(funded, false, fundingNeeded(100_000_000n, 1)).kind, "ok"); // same balance, cart shrank back
 assert.equal(funding(250_000_000n, false, short).kind, "ok");
-assert.equal(funding(undefined, false, fundingNeeded(100_000_000n, 1)).kind, "ok"); // no read yet: no claim about the wallet
+assert.equal(funding(undefined, false, fundingNeeded(100_000_000n, 1)).kind, "ok"); // no read yet: no claim, no gate
 // A failed read is its own state: the helper still shows, with a way to read again, instead of claiming nothing.
 assert.equal(funding(undefined, true, fundingNeeded(100_000_000n, 1)).kind, "unreadable");
 assert.match(FUNDING_COPY.unread, /balance could not be read/i);
@@ -54,9 +53,27 @@ assert.ok(!/prior credit/i.test(describeError(new Error("Attempt to debit an acc
 assert.match(FUNDING_COPY.short(0n, fundingNeeded(100_000_000n, 1)), /0 SOL/);
 assert.match(FUNDING_COPY.short(0n, fundingNeeded(100_000_000n, 1)), /0.104 SOL/);
 assert.ok(/free devnet SOL/i.test(FUNDING_ERROR));
-assert.match(FUNDING_COPY.paste, /free devnet test SOL/i);
 assert.match(FUNDING_COPY.faucet, /free devnet test SOL/i);
 assert.match(FUNDING_COPY.faucet, /no value/i);
+
+// One funding rule behind both surfaces. A read that failed leaves the balance undefined, which is the very value the
+// pre-payment gate asks about, so that state must not block a payment: a funded wallet whose balance read failed still
+// reaches the chain, which is the real judge, and fails there with FUNDING_ERROR if it really cannot pay.
+// What that same state says is one rule, so the checkout card and the wallet dialog card cannot drift apart: neither may
+// claim a wallet that could not be read needs SOL, and both must offer a way to read again.
+const unread = fundingCopy(funding(undefined, true, fundingNeeded(100_000_000n, 1)))!;
+assert.deepEqual(unread, { heading: FUNDING_COPY.unreadHeading, note: FUNDING_COPY.unread });
+assert.doesNotMatch(unread.note, /paste/i);
+assert.doesNotMatch(unread.heading, /faucet/i);
+assert.deepEqual(fundingCopy(funding(undefined, true)), unread); // the wallet dialog, which needs no total to compare
+// A read that came back empty or short is the only thing that points at the faucet.
+const empty = fundingCopy(funding(0n, false))!;
+assert.deepEqual(empty, { heading: FUNDING_COPY.heading, note: FUNDING_COPY.empty });
+assert.match(empty.note, /0 devnet SOL/);
+assert.match(empty.note, /free devnet test SOL/i);
+assert.match(fundingCopy(funding(funded, false, short))!.note, new RegExp(`One checkout needs ${sol(short)}`));
+assert.equal(fundingCopy(funding(1n, false)), undefined); // a wallet that holds something needs no helper
+assert.equal(fundingCopy(funding(250_000_000n, false, fundingNeeded(100_000_000n, 1))), undefined);
 
 // Passkey derivation known-answer (research report 1.3): a fixed PRF output must keep giving this address,
 // or a silent dependency bump moved the keys.

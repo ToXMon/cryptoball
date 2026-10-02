@@ -56,18 +56,24 @@ export const fundingNeeded = (priceLamports: bigint, count = 1) => {
   return (priceLamports + CARTON_COST_LAMPORTS) * cartons;
 };
 
-/** What the funding helper says about a wallet, from its latest balance read. */
-export type Funding = { kind: "ok" } | { kind: "unreadable" } | { kind: "short"; balance: bigint; needed: bigint };
+/**
+ * What the funding helper says about a wallet, from its latest balance read. `empty` is the same fact the wallet dialog
+ * shows: a wallet that holds nothing, which only a surface with no cart total to compare against can report that way.
+ */
+export type Funding = { kind: "ok" } | { kind: "unreadable" } | { kind: "empty" } | { kind: "short"; balance: bigint; needed: bigint };
 
 /**
- * The funding state of a checkout, as a pure function of the latest read and the current cart total: shrinking the cart
- * clears the funding prompt and growing it raises one again, and nothing latches. A read that failed is its own state,
- * so a flaky RPC neither claims the wallet is short nor hides the helper; a balance not read yet claims nothing.
+ * The one funding rule every surface shares: the checkout card, the wallet dialog card and the pre-payment gate all read
+ * the same state from the latest read, so shrinking the cart clears the funding prompt and growing it raises one again,
+ * and nothing latches. `needed` is what the surface is about to ask for, and a surface with no checkout in hand passes
+ * none. A read that failed is its own state, so a flaky RPC neither claims the wallet is short nor hides the helper; a
+ * balance not read yet claims nothing.
  */
-export const funding = (balance: bigint | undefined, unreadable: boolean, needed: bigint): Funding => {
-  if (needed <= 0n) return { kind: "ok" }; // nothing selected, so there is nothing to fund and nothing to ask for
+export const funding = (balance: bigint | undefined, unreadable: boolean, needed?: bigint): Funding => {
+  if (needed != null && needed <= 0n) return { kind: "ok" }; // nothing selected, so there is nothing to fund and nothing to ask for
   if (unreadable) return { kind: "unreadable" };
   if (balance == null) return { kind: "ok" };
+  if (needed == null) return balance === 0n ? { kind: "empty" } : { kind: "ok" };
   return balance < needed ? { kind: "short", balance, needed } : { kind: "ok" };
 };
 

@@ -1,6 +1,6 @@
 import { Component, Suspense, lazy, useEffect, useId, useRef, useState, type ComponentType, type LazyExoticComponent, type ReactNode } from "react";
-import { pad, parts, useNow, useReducedMotion, FUNDING_COPY } from "./lib";
-import { FAUCET_URL, type Ticket } from "./program";
+import { pad, parts, useNow, useReducedMotion, fundingCopy, FUNDING_COPY } from "./lib";
+import { FAUCET_URL, type Funding, type Ticket } from "./program";
 
 export function Ball({ n, bonus, delay = 0, drop }: { n: number; bonus?: boolean; delay?: number; drop?: boolean }) {
   return (
@@ -96,12 +96,14 @@ const COPIED = "Address copied. Paste it into the faucet.";
 /**
  * Funding helper for a wallet that cannot cover a ticket: the address, a copy button and a link out to the
  * official Solana devnet faucet. No faucet of our own (R-82 devnet-only); the copy says plainly it is free play money.
- * `retry` re-reads the balance, and is there because a failed read must not hide the helper.
+ * What it says about the wallet comes from `fundingCopy`, so every surface renders the same state the same way, and
+ * `retry` re-reads the balance, which is there because a failed read must not hide the helper.
  */
-export function Faucet({ address, note, retry }: { address: string; note: string; retry?: () => void }) {
+export function Faucet({ address, fund, retry }: { address: string; fund: Funding; retry?: () => void }) {
   const headingId = useId();
   const [status, setStatus] = useState<string>();
-  const copy = async () => {
+  const copy = fundingCopy(fund);
+  const copyAddress = async () => {
     try {
       await navigator.clipboard.writeText(address);
       setStatus(COPIED);
@@ -110,13 +112,14 @@ export function Faucet({ address, note, retry }: { address: string; note: string
       setStatus("Could not copy the address. Select it and copy it by hand.");
     }
   };
+  if (!copy) return null;
   return (
     <section className="cb-card cb-funding" aria-labelledby={headingId}>
-      <h2 id={headingId}>{FUNDING_COPY.heading}</h2>
-      <p>{note}</p>
+      <h2 id={headingId}>{copy.heading}</h2>
+      <p>{copy.note}</p>
       <p className="cb-num cb-addr">{address}</p>
       <p className="cb-row">
-        <button type="button" className="cb-btn cb-btn--ghost" onClick={() => void copy()}>{status === COPIED ? "Address copied" : "Copy address"}</button>
+        <button type="button" className="cb-btn cb-btn--ghost" onClick={() => void copyAddress()}>{status === COPIED ? "Address copied" : "Copy address"}</button>
         {retry && <button type="button" className="cb-btn cb-btn--ghost" onClick={retry}>{FUNDING_COPY.recheck}</button>}
         <a className="cb-btn cb-btn--primary" href={FAUCET_URL} target="_blank" rel="noreferrer">Open Solana devnet faucet</a>
       </p>

@@ -1,9 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { ConnectionProvider, WalletProvider, useWallet } from "@solana/wallet-adapter-react";
 import { WalletReadyState } from "@solana/wallet-adapter-base";
-import { short, sol, FUNDING_COPY } from "./lib";
+import { short, sol } from "./lib";
 import { Faucet } from "./components";
-import { getBalance } from "./program";
+import { funding, getBalance } from "./program";
 import { passkeyAddress, passkeyErrorText, registerPasskeyWallet, revealRecoveryPhrase } from "./passkeyWallet";
 import { DEVNET_RPC } from "./program";
 
@@ -45,7 +45,7 @@ export function WalletChip() {
 
 /**
  * The one devnet balance read behind every funding surface: the last value, whether that read failed (a flaky RPC is
- * not the same as a zero balance) and `read` to re-read it. Callers decide what to say from those three.
+ * not the same as a zero balance) and `read` to re-read it. `funding` turns those into the state the helper renders.
  */
 export function useBalance(address?: string) {
   const [st, setSt] = useState<{ balance?: bigint; unreadable: boolean }>({ unreadable: false });
@@ -67,9 +67,9 @@ export function useBalance(address?: string) {
 /** A fresh passkey wallet has 0 devnet SOL; the funding helper lives right here, next to the address. */
 function Balance({ address }: { address: string }) {
   const { balance, unreadable, read } = useBalance(address);
-  if (unreadable || balance === 0n) return <Faucet address={address} note={FUNDING_COPY.paste} retry={unreadable ? read : undefined} />;
-  if (balance == null) return null;
-  return <p className="cb-muted">Devnet balance: <span className="cb-num">{sol(balance)}</span></p>;
+  const fund = funding(balance, unreadable);
+  if (fund.kind === "ok") return balance == null ? null : <p className="cb-muted">Devnet balance: <span className="cb-num">{sol(balance)}</span></p>;
+  return <Faucet address={address} fund={fund} retry={read} />;
 }
 
 function WalletDialog({ dialogRef, error, clearError, opens }: { dialogRef: React.RefObject<HTMLDialogElement | null>; error?: string; clearError: () => void; opens: number }) {

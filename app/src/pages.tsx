@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { Balls, Countdown, Faucet, Stage, TicketFace, lazyScene } from "./components";
-import { dateTime, explorer, go, num, pad, quickPick, short, sol, useAsync, FUNDING_COPY } from "./lib";
+import { dateTime, explorer, go, num, pad, quickPick, short, sol, useAsync } from "./lib";
 import { buyTicket, describeError, fetchCampaign, fetchCampaigns, fetchTicket, fetchTickets, funding, fundingNeeded, payout, refundTicket, type Campaign, type Ticket } from "./program";
 import { useBalance, useWalletDialog } from "./Wallet";
 
@@ -174,10 +174,13 @@ function Checkout({ c, cart, total, fee, onBought }: { c: Campaign; cart: Carton
     if (phase !== "idle") return;
     // A brand new passkey wallet cannot pay even the fee. Re-read before the payment UI takes over: the last read may
     // predate the funding the user just did in the faucet's tab, and a balance that cannot cover the order must ask
-    // the wallet for nothing and leave the record of already bought tickets alone.
+    // the wallet for nothing and leave the record of already bought tickets alone. Only a read that came back short
+    // stops the payment: a failed read fails open, because the chain is the real judge of whether the wallet can pay
+    // and a wallet that cannot fails there with the funding message.
     setPhase("checking");
-    const have = await read();
-    if (have == null || funding(have, false, needed).kind === "short") { setPhase("idle"); return; }
+    let have = await read();
+    if (have == null) have = await read();
+    if (have != null && funding(have, false, needed).kind === "short") { setPhase("idle"); return; }
     setErr(undefined); setDone([]); setProgress(0);
     setPhase("paying");
     const bought: Ticket[] = [];
@@ -207,13 +210,7 @@ function Checkout({ c, cart, total, fee, onBought }: { c: Campaign; cart: Carton
           : buyer ? `Pay ${sol(total)}` : "Connect wallet to pay"}
       </button>
       {err != null && <Err e={err} />}
-      {buyer != null && fund.kind !== "ok" && (
-        <Faucet
-          address={buyer}
-          note={fund.kind === "short" ? FUNDING_COPY.short(fund.balance, fund.needed) : FUNDING_COPY.unread}
-          retry={fund.kind === "unreadable" ? read : undefined}
-        />
-      )}
+      {buyer != null && <Faucet address={buyer} fund={fund} retry={read} />}
       {phase === "paying" && <p className="cb-muted" aria-live="polite">Approve each ticket in your wallet.</p>}
     </div>
   );
