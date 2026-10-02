@@ -8,7 +8,6 @@
 use crate::constants::{MAX_BONUS, MAX_NUMBER, PICK_COUNT};
 use crate::errors::CryptoballError;
 use anchor_lang::prelude::*;
-use solana_keccak_hasher::hashv;
 
 /// Derive the winning ticket index from the revealed 32-byte Switchboard value (R-46).
 /// `u128::from_le_bytes(value[0..16]) % ticket_count`; for a uniform 128-bit value and N <= 2^32 the
@@ -22,60 +21,35 @@ pub fn winning_index(revealed: &[u8; 32], ticket_count: u32) -> Result<u32> {
     Ok((u128::from_le_bytes(head) % ticket_count as u128) as u32)
 }
 
-/// Deterministic byte stream: keccak256(domain || seed || counter), 32 bytes per block.
-struct Stream<'a> {
-    seed: &'a [u8; 32],
-    counter: u32,
-    block: [u8; 32],
-    pos: usize,
-}
-
-impl<'a> Stream<'a> {
-    fn new(seed: &'a [u8; 32]) -> Self {
-        Self { seed, counter: 0, block: [0; 32], pos: 32 }
-    }
-    fn next_byte(&mut self) -> u8 {
-        if self.pos == 32 {
-            self.block = hashv(&[&b"cryptoball-numbers"[..], &self.seed[..], &self.counter.to_le_bytes()[..]]).to_bytes();
-            self.counter = self.counter.wrapping_add(1);
-            self.pos = 0;
-        }
-        self.pos += 1;
-        self.block[self.pos - 1]
-    }
-    /// Uniform in 0..n (n in 1..=255) by rejection sampling: accept b < 256 - 256 % n, return b % n.
-    // ponytail: bounded at 64 tries (reject odds <= 0.19 each, so < 1e-46 to fall through); the
-    // fallback is a biased modulo that keeps settle live. Swap to a wider stream if n ever grows.
-    fn below(&mut self, n: u8) -> u8 {
-        let limit = 256 - 256 % n as u16;
-        let mut b = self.next_byte();
-        for _ in 0..64 {
-            if (b as u16) < limit {
-                break;
-            }
-            b = self.next_byte();
-        }
-        b % n
-    }
+/// Uniform draw in 0..n from the next unused 32-bit little-endian word of the revealed value, by
+/// rejection sampling: accept x < floor(2^32 / n) * n, return x % n. Rejection odds are n / 2^32 per word.
+/// Fails closed (`RandomnessExhausted`, ~1e-23) rather than ever falling back to a biased modulo; the
+/// campaign then times out into cancel + refund.
+fn below(words: &mut impl Iterator<Item = u32>, n: u32) -> Result<u32> {
+    let limit = (u32::MAX / n) * n; // largest multiple of n that fits; x in [0, limit) is unbiased
+    words
+        .find(|&x| x < limit)
+        .map(|x| x % n)
+        .ok_or_else(|| error!(CryptoballError::RandomnessExhausted))
 }
 
 /// Drawn lottery numbers (R-45 "known vector"): 5 distinct in 1..=MAX_NUMBER (ascending) and a bonus in
 /// 1..=MAX_BONUS. Partial Fisher-Yates over 1..=69 with unbiased range reduction; no loops over tickets.
 /// Display only under the raffle rule; the jackpot-only upgrade would pay on these.
-pub fn winning_numbers(revealed: &[u8; 32]) -> ([u8; PICK_COUNT], u8) {
-    let mut s = Stream::new(revealed);
+pub fn winning_numbers(revealed: &[u8; 32]) -> Result<([u8; PICK_COUNT], u8)> {
+    let mut words = revealed.chunks_exact(4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]));
     let mut pool = [0u8; MAX_NUMBER as usize];
     for (i, p) in pool.iter_mut().enumerate() {
         *p = i as u8 + 1;
     }
     let mut out = [0u8; PICK_COUNT];
     for i in 0..PICK_COUNT {
-        let j = i + s.below(MAX_NUMBER - i as u8) as usize;
+        let j = i + below(&mut words, (MAX_NUMBER as usize - i) as u32)? as usize;
         pool.swap(i, j);
         out[i] = pool[i];
     }
     out.sort_unstable();
-    (out, s.below(MAX_BONUS) + 1)
+    Ok((out, below(&mut words, MAX_BONUS as u32)? as u8 + 1))
 }
 
 #[cfg(test)]
@@ -112,14 +86,31 @@ mod tests {
     }
 
     #[test]
+    fn numbers_known_vector_and_no_biased_fallback() {
+        // Words 1,2,3,4,5,6 -> Fisher-Yates picks (1,2,3,4,5 from shrinking pools): 1%69=1 -> pool[1]=2, ...
+        let mut v = [0u8; 32];
+        for (k, w) in [1u32, 2, 3, 4, 5, 6].iter().enumerate() {
+            v[k * 4..k * 4 + 4].copy_from_slice(&w.to_le_bytes());
+        }
+        let (n, b) = winning_numbers(&v).unwrap();
+        assert_eq!((n, b), ([2, 4, 6, 8, 10], 7));
+        // All words above every limit: every draw rejects, so it must error instead of reducing modulo.
+        assert!(winning_numbers(&[0xff; 32]).is_err());
+    }
+
+    #[test]
     fn numbers_valid_deterministic_and_spread() {
         let mut seen = [0u32; 70];
         let mut bonus_seen = [0u32; 27];
         for k in 0..2_000u32 {
             let mut v = [0u8; 32];
-            v[..4].copy_from_slice(&k.to_le_bytes());
-            let (n, b) = winning_numbers(&v);
-            assert_eq!((n, b), winning_numbers(&v));
+            let mut x = (k as u64 + 1).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+            for c in v.chunks_mut(8) {
+                x ^= x << 13; x ^= x >> 7; x ^= x << 17; // xorshift64
+                c.copy_from_slice(&x.to_le_bytes());
+            }
+            let (n, b) = winning_numbers(&v).unwrap();
+            assert_eq!((n, b), winning_numbers(&v).unwrap());
             assert!(n.windows(2).all(|w| w[0] < w[1]), "{n:?}");
             assert!(n[0] >= 1 && n[4] <= 69 && (1..=26).contains(&b));
             n.iter().for_each(|&x| seen[x as usize] += 1);

@@ -65,7 +65,7 @@ describe("cancel_campaign + refund_ticket", () => {
     const rnd = await w.commit(camp);
     w.setTime(w.now, w.slot + 1n);
     w.reveal(rnd, Buffer.alloc(32, 1));
-    w.ok([await w.settleIx(camp, rnd, 0)], [w.payer]);
+    w.ok([await w.settleIx(camp, rnd, 0, b1.publicKey)], [w.payer]);
     w.fails([await w.refundIx(camp, 0, b1.publicKey)], [w.payer], "WrongState");
     w.fails([await w.cancelIx(camp)], [w.payer], "WrongState");
   });

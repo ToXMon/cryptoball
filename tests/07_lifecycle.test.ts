@@ -4,7 +4,7 @@ import { expect } from "chai";
 import { World, valueFor, PRICE } from "./harness";
 
 describe("lifecycle + conservation", () => {
-  it("create -> buy x6 (3 wallets) -> close -> commit -> reveal+settle -> payout; treasury and vault conserve", async () => {
+  it("create -> buy x6 (3 wallets) -> close -> commit -> reveal+settle (pays winner); treasury and vault conserve", async () => {
     const w = new World(); await w.init();
     const camp = await w.campaign(1n, { max: 10 });
     const wallets = [0, 1, 2].map(() => { const k = Keypair.generate(); w.fund(k); return k; });
@@ -23,8 +23,7 @@ describe("lifecycle + conservation", () => {
     const idx = Number(0xdeadbeefn % 6n);
 
     const t0 = w.bal(w.treasury.publicKey), winner = owner[idx], w0 = w.bal(winner.publicKey);
-    w.ok([await w.settleIx(camp, rnd, idx)], [w.payer]);
-    w.ok([await w.payoutIx(camp, idx, winner.publicKey)], [w.payer]);
+    w.ok([await w.settleIx(camp, rnd, idx, winner.publicKey)], [w.payer]);
 
     const fee = w.bal(w.treasury.publicKey) - t0, prize = w.bal(winner.publicKey) - w0;
     expect(fee).to.equal(vaultIn / 10n);
@@ -47,8 +46,7 @@ describe("lifecycle + conservation", () => {
       const rnd = await w.commit(camp);
       w.setTime(w.now, w.slot + 2n); w.reveal(rnd, valueFor(BigInt(n) * 5n + BigInt(n - 1)));
       const t0 = w.bal(w.treasury.publicKey), b0 = w.bal(k.publicKey);
-      w.ok([await w.settleIx(camp, rnd, n - 1)], [w.payer]);
-      w.ok([await w.payoutIx(camp, n - 1, k.publicKey)], [w.payer]);
+      w.ok([await w.settleIx(camp, rnd, n - 1, k.publicKey)], [w.payer]);
       expect(w.bal(w.treasury.publicKey) - t0 + (w.bal(k.publicKey) - b0)).to.equal(inn);
       expect(w.bal(w.treasury.publicKey) - t0).to.equal((inn * BigInt(fee)) / 10_000n);
       expect(w.bal(camp.vault)).to.equal(0n);
@@ -63,9 +61,8 @@ describe("lifecycle + conservation", () => {
     w.ok([SystemProgram.transfer({ fromPubkey: w.payer.publicKey, toPubkey: camp.vault, lamports: 7 })], [w.payer]);
     const rnd = await w.commit(camp); w.setTime(w.now, w.slot + 2n); w.reveal(rnd, valueFor(0n));
     const t0 = w.bal(w.treasury.publicKey);
-    w.ok([await w.settleIx(camp, rnd, 0)], [w.payer]);
+    w.ok([await w.settleIx(camp, rnd, 0, k.publicKey)], [w.payer]);
     expect(w.bal(w.treasury.publicKey) - t0).to.equal(PRICE / 10n);
-    w.ok([await w.payoutIx(camp, 0, k.publicKey)], [w.payer]);
     expect(w.bal(camp.vault)).to.equal(0n);
   });
 });

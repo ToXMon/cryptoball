@@ -2,11 +2,11 @@
 
 Crypto lottery on Solana. Anchor program + React frontend. **Devnet-only MVP, play money, no real funds.**
 
-Raffle-style: players buy tickets with SOL (5 numbers from 1-69 plus a Cryptoball bonus ball from 1-26, up to 5 tickets per checkout, quick-pick available). Each ticket mints a Metaplex Core NFT receipt. After the campaign closes, anyone commits and then settles a Switchboard On-Demand randomness draw; one ticket wins and 10 percent goes to the treasury at settle. Anyone may then call `payout_ticket`, which pays the prize to the winning ticket's buyer wallet (permissionless, destination fixed to `ticket.buyer`).
+Raffle-style: players buy tickets with SOL (5 numbers from 1-69 plus a Cryptoball bonus ball from 1-26, up to 5 tickets per checkout, quick-pick available). Each ticket mints a Metaplex Core NFT receipt. After the campaign closes, anyone commits and then settles a Switchboard On-Demand randomness draw; one ticket wins, 10 percent goes to the treasury and the program pays the winner's wallet (`ticket.buyer`, never the NFT owner) in the same transaction. No claim step.
 
 ## Status
 
-Phase 3 program build: all instructions implemented (`initialize`, `update_config`, `nominate_admin`, `accept_admin`, `create_campaign`, `buy_ticket`, `commit_draw`, `settle_draw`, `payout_ticket`, `cancel_campaign`, `refund_ticket`), each with happy-path and negative tests on LiteSVM (`tests/0*.test.ts`) plus a lifecycle and conservation test. Deviations from `docs/design.md`: `settle_draw` pays the fee and records the prize, a separate permissionless `payout_ticket` pays the winner (per-ticket fan-out, ticket status `Paid`); `settle_draw` also derives the 5-of-69 plus bonus display numbers (`winner::winning_numbers`); `initialize` takes the treasury as an account; `close_campaign` is still not built.
+Phase 3 program build: all instructions implemented (`initialize`, `update_config`, `nominate_admin`, `accept_admin`, `create_campaign`, `buy_ticket`, `commit_draw`, `settle_draw`, `cancel_campaign`, `refund_ticket`), each with happy-path and negative tests on LiteSVM (`tests/0*.test.ts`) plus a lifecycle and conservation test. `settle_draw` also derives the 5-of-69 plus Cryptoball display numbers (`winner::winning_numbers`, unbiased rejection sampling, fails closed instead of falling back to modulo); `initialize` takes the treasury as an account; `close_campaign` is still not built (design.md section 5).
 
 | Doc | What |
 |---|---|

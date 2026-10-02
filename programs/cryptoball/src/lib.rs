@@ -1,7 +1,7 @@
 //! Cryptoball: raffle-style SOL lottery on Solana (devnet MVP).
 //!
 //! Behaviour, accounts, seeds and checks: docs/design.md; requirement ids (R-xx): docs/requirements.md.
-//! Lifecycle: create_campaign -> buy_ticket* -> commit_draw -> settle_draw -> payout_ticket (winner),
+//! Lifecycle: create_campaign -> buy_ticket* -> commit_draw -> settle_draw (pays fee + winner atomically),
 //! or cancel_campaign -> refund_ticket*. Every state change has exactly one owning instruction.
 
 use anchor_lang::prelude::*;
@@ -82,7 +82,7 @@ pub mod cryptoball {
     /// R-13..R-19, R-77. Signer: admin. Creates the Campaign, its Core collection (update authority =
     /// Campaign PDA) and fixes the vault bump. The vault comes alive on the first buy_ticket credit.
     pub fn create_campaign(ctx: Context<CreateCampaign>, id: u64, price_lamports: u64, close_ts: i64, max_tickets: u32) -> Result<()> {
-        require!((MIN_TICKET_PRICE_LAMPORTS..=MAX_TICKET_PRICE_LAMPORTS).contains(&price_lamports), E::InvalidParams);
+        require!(price_lamports >= MIN_TICKET_PRICE_LAMPORTS, E::InvalidParams);
         require!(max_tickets > 0 && max_tickets <= MAX_TICKETS, E::InvalidParams);
         require!(close_ts > Clock::get()?.unix_timestamp, E::InvalidParams);
 
@@ -188,7 +188,7 @@ pub mod cryptoball {
     }
 
     /// R-43..R-54, R-78. Signer: anyone. DrawCommitted -> Settled. Derives numbers and the winning ticket,
-    /// pays the fee to the treasury; the prize stays in the vault until the winner's `payout_ticket`.
+    /// pays the fee to the treasury and the prize to Ticket.buyer, both in this transaction (no claim step).
     pub fn settle_draw(ctx: Context<SettleDraw>) -> Result<()> {
         let clock = Clock::get()?;
         let c = &mut ctx.accounts.campaign;
@@ -214,27 +214,20 @@ pub mod cryptoball {
 
         // ponytail: a fee below the treasury's rent minimum fails here if the treasury was drained to 0
         // (admin-set wallet, self-inflicted); upgrade = sweep to a fallback or cancel path.
+        let camp_key = c.key();
         if fee > 0 {
-            let camp_key = c.key();
-            let seeds: &[&[u8]] = &[VAULT_SEED, camp_key.as_ref(), &[c.vault_bump]];
-            transfer(
-                CpiContext::new_with_signer(
-                    ctx.accounts.system_program.to_account_info(),
-                    Transfer { from: ctx.accounts.vault.to_account_info(), to: ctx.accounts.treasury.to_account_info() },
-                    &[seeds],
-                ),
-                fee,
-            )?;
+            vault_pay(&ctx.accounts.vault, &ctx.accounts.treasury, &ctx.accounts.system_program, &camp_key, c.vault_bump, fee)?;
         }
+        let prize_paid = vault_pay(&ctx.accounts.vault, &ctx.accounts.buyer_wallet, &ctx.accounts.system_program, &camp_key, c.vault_bump, prize)?;
 
-        let (numbers, bonus) = winner::winning_numbers(&revealed);
+        let (numbers, bonus) = winner::winning_numbers(&revealed)?;
         c.randomness = revealed;
         c.winning_index = idx;
         c.winner = t.buyer;
         c.winning_numbers = numbers;
         c.winning_bonus = bonus;
         c.fee_lamports = fee;
-        c.prize_lamports = prize;
+        c.prize_lamports = prize_paid;
         c.state = CampaignState::Settled;
         emit!(DrawSettled {
             campaign: c.key(),
@@ -243,24 +236,9 @@ pub mod cryptoball {
             winner: t.buyer,
             winning_numbers: numbers,
             winning_bonus: bonus,
-            prize_lamports: prize,
+            prize_lamports: prize_paid,
             fee_lamports: fee
         });
-        Ok(())
-    }
-
-    /// Permissionless; destination is always Ticket.buyer (never the NFT owner, never the caller).
-    /// Settled -> winning ticket Active -> Paid, once.
-    pub fn payout_ticket(ctx: Context<PayoutTicket>) -> Result<()> {
-        let c = &ctx.accounts.campaign;
-        let t = &mut ctx.accounts.ticket;
-        require!(c.state == CampaignState::Settled, E::WrongState);
-        require!(t.index == c.winning_index, E::NotWinner);
-        require!(t.status != TicketStatus::Paid, E::AlreadyPaid);
-        require!(t.status == TicketStatus::Active, E::WrongState);
-        t.status = TicketStatus::Paid;
-        let paid = vault_pay(&ctx.accounts.vault, &ctx.accounts.buyer_wallet, &ctx.accounts.system_program, &c.key(), c.vault_bump, c.prize_lamports)?;
-        emit!(PrizePaid { campaign: c.key(), index: t.index, buyer: t.buyer, lamports: paid });
         Ok(())
     }
 
@@ -449,21 +427,7 @@ pub struct SettleDraw<'info> {
     pub vault: SystemAccount<'info>,
     #[account(mut, address = config.treasury @ E::BadAccount)]
     pub treasury: SystemAccount<'info>,
-    pub system_program: Program<'info, System>,
-}
-
-#[derive(Accounts)]
-pub struct PayoutTicket<'info> {
-    pub payer: Signer<'info>,
-    #[account(seeds = [CAMPAIGN_SEED, &campaign.id.to_le_bytes()], bump = campaign.bump)]
-    pub campaign: Account<'info, Campaign>,
-    #[account(
-        mut, has_one = campaign @ E::BadAccount,
-        seeds = [TICKET_SEED, campaign.key().as_ref(), &ticket.index.to_le_bytes()], bump = ticket.bump
-    )]
-    pub ticket: Account<'info, Ticket>,
-    #[account(mut, seeds = [VAULT_SEED, campaign.key().as_ref()], bump = campaign.vault_bump)]
-    pub vault: SystemAccount<'info>,
+    /// Prize destination: always the winning Ticket's stored buyer, never the NFT owner or the caller.
     #[account(mut, address = ticket.buyer @ E::BadAccount)]
     pub buyer_wallet: SystemAccount<'info>,
     pub system_program: Program<'info, System>,

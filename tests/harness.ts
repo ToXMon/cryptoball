@@ -185,17 +185,11 @@ export class World {
     const seed = this.svm.getAccount(rnd)!.data.slice(8 + 96, 8 + 104);
     this.randomness(Buffer.from(seed).readBigUInt64LE(), this.slot, value, SB_ID, rnd);
   }
-  async settleIx(camp: any, rnd: PublicKey, ticketIdx: number, o: { treasury?: PublicKey } = {}) {
+  async settleIx(camp: any, rnd: PublicKey, ticketIdx: number, buyerWallet: PublicKey, o: { treasury?: PublicKey } = {}) {
     return this.m.settleDraw().accountsPartial({
       payer: this.payer.publicKey, config: configPda(), campaign: camp.key, randomness: rnd,
-      ticket: ticketPda(camp.key, ticketIdx), vault: camp.vault, treasury: o.treasury ?? this.treasury.publicKey,
+      ticket: ticketPda(camp.key, ticketIdx), vault: camp.vault, treasury: o.treasury ?? this.treasury.publicKey, buyerWallet,
       systemProgram: SystemProgram.programId,
-    }).instruction();
-  }
-  async payoutIx(camp: any, idx: number, wallet: PublicKey) {
-    return this.m.payoutTicket().accountsPartial({
-      payer: this.payer.publicKey, campaign: camp.key, ticket: ticketPda(camp.key, idx), vault: camp.vault,
-      buyerWallet: wallet, systemProgram: SystemProgram.programId,
     }).instruction();
   }
   cancelIx(camp: any) { return this.m.cancelCampaign().accountsPartial({ payer: this.payer.publicKey, campaign: camp.key }).instruction(); }

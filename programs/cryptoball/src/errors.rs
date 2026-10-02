@@ -31,16 +31,14 @@ pub enum CryptoballError {
     TimeoutNotElapsed,
     #[msg("Ticket already refunded")]
     AlreadyRefunded,
-    #[msg("Ticket is not the winning ticket")]
-    NotWinner,
-    #[msg("Prize already paid")]
-    AlreadyPaid,
     #[msg("Draw cannot be settled by this ticket or randomness account")]
     BadSettlement,
     #[msg("Campaign has no tickets")]
     NoTickets,
     #[msg("Treasury wallet is below the rent-exempt minimum")]
     TreasuryBelowRent,
+    #[msg("Revealed randomness could not yield unbiased numbers")]
+    RandomnessExhausted,
     #[msg("Arithmetic overflow")]
     Overflow,
 }

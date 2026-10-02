@@ -58,8 +58,6 @@ pub struct Campaign {
 pub enum TicketStatus {
     Active,
     Refunded,
-    /// The winning ticket after `payout_ticket`.
-    Paid,
 }
 
 /// One purchased ticket. Seeds: ["ticket", campaign, index u32 LE].
