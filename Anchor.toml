@@ -10,7 +10,7 @@ skip-lint = false
 cryptoball = "8LjPXfLAJAifS62qRt8JAgL7g8cXiWoKDr7WAVsDmx1N"
 
 [provider]
-cluster = "devnet"
+cluster = "localnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
