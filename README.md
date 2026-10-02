@@ -6,7 +6,7 @@ Raffle-style: players buy tickets with SOL (5 numbers from 1-69 plus a Cryptobal
 
 ## Status
 
-Phase 1 and 2 (requirements, architecture, scaffold). The program is interface stubs only: every instruction returns `NotImplemented`. Build order is `docs/design.md` section 17.
+Phases 1 to 2 (requirements, architecture, scaffold) and the frontend phase. The program is interface stubs only: every instruction returns `NotImplemented`, so the web app runs against a mock adapter (`app/src/program.ts`, in-memory campaigns, fake signatures) until the IDL lands. Build order is `docs/design.md` section 17.
 
 | Doc | What |
 |---|---|
@@ -19,7 +19,7 @@ Phase 1 and 2 (requirements, architecture, scaffold). The program is interface s
 ```
 programs/cryptoball/   Anchor program (stubs, state, events, errors, constants, winner.rs)
 tests/                 ts-mocha harness (seed smoke test now; per-instruction tests in phase 3)
-app/                   React + Vite shell; src/tokens.css = Prime Time design tokens
+app/                   React + Vite player app (Prime Time design, 3D ticket, draw-night ball drop); src/tokens.css = design tokens; src/program.ts = mock program adapter
 docs/                  requirements, design, diagrams
 ```
 
@@ -40,7 +40,7 @@ Why these features: `docs/design.md` section 10.
 cargo test -p cryptoball          # pinned-id check
 cargo build-sbf --manifest-path programs/cryptoball/Cargo.toml
 pnpm install && pnpm test         # ts-mocha seed smoke test
-cd app && pnpm install && pnpm dev
+cd app && pnpm install && pnpm dev   # also: pnpm test (pure-logic check), pnpm build
 ```
 
 ## Receipts (devnet)

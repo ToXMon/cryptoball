@@ -1,18 +1,32 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./tokens.css";
+import "./app.css";
+import { Wallets, WalletChip } from "./Wallet";
+import { Confirmation, Landing, Pick, Results } from "./pages";
+import { useRoute } from "./lib";
 
-// Token-driven shell only. Pages (campaigns, picker, checkout, results) land in phase 4,
-// after the program IDL exists (docs/design.md section 17).
+function Router() {
+  const [page, a, b] = useRoute();
+  switch (page) {
+    case "pick": return <Pick id={Number(a)} />;
+    case "ticket": return <Confirmation id={Number(a)} index={Number(b)} />;
+    case "results": return <Results id={Number(a)} />;
+    default: return <Landing />;
+  }
+}
+
 function App() {
   return (
-    <main style={{ maxWidth: 960, margin: "0 auto", padding: "var(--space-6) var(--space-4)" }}>
-      <p style={{ color: "var(--warn)", fontSize: 14, margin: 0 }}>Devnet only. Play money.</p>
-      <h1 style={{ fontFamily: "var(--font-display)", fontStyle: "italic", fontWeight: 600, letterSpacing: "var(--logo-track)", fontSize: 48, margin: "var(--space-3) 0" }}>
-        Cryptoball
-      </h1>
-      <p style={{ color: "var(--muted)" }}>Pick 5 numbers and a Cryptoball. One ticket wins. Paid automatically.</p>
-    </main>
+    <Wallets>
+      <p className="cb-banner" role="status">Devnet only. Play money.</p>
+      <header className="cb-head">
+        <a className="cb-logo" href="#/">Cryptoball</a>
+        <WalletChip />
+      </header>
+      <main className="cb-main"><Router /></main>
+      <footer className="cb-foot cb-muted">Devnet demo with play money. Not a real lottery. Must be 18 or older where you live to play any real lottery. Play responsibly.</footer>
+    </Wallets>
   );
 }
 
