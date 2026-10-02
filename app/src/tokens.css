@@ -1,6 +1,6 @@
 /* Prime Time (direction B). Source: cryptoball-design report, section 3 and 5.
    Semantic names only; components reference tokens, never raw values. */
-:root {
+:root, [data-theme="dark"] {
   --bg: #0B1230; --surface: #141C44; --surface-2: #1C2656;
   --border: #263070; --border-strong: #3A468F;
   --text: #F6EFE3; --muted: #B7B9CC;
