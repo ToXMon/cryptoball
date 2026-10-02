@@ -42,8 +42,8 @@ function CampaignCard({ c }: { c: Campaign }) {
 
 export function Landing() {
   const { data, error, loading } = useAsync(fetchCampaigns, []);
-  const open = data?.filter((c) => c.state === "Open");
-  const hero = open?.reduce((a, b) => (a.closeTs < b.closeTs ? a : b));
+  const open = data?.filter((c) => c.state === "Open" && c.closeTs * 1000 > Date.now()).sort((a, b) => a.closeTs - b.closeTs);
+  const hero = open?.[0];
   return (
     <>
       <section className="cb-hero">
@@ -147,26 +147,27 @@ export function Pick({ id }: { id: number }) {
               </li>
             ))}
           </ol>
-          <Checkout c={c} cart={cart} total={total} fee={fee} />
+          <Checkout c={c} cart={cart} total={total} fee={fee} onBought={(n) => setCart(cart.slice(n))} />
         </aside>
       </div>
     </>
   );
 }
 
-function Checkout({ c, cart, total, fee }: { c: Campaign; cart: Carton[]; total: bigint; fee: bigint }) {
+function Checkout({ c, cart, total, fee, onBought }: { c: Campaign; cart: Carton[]; total: bigint; fee: bigint; onBought: (n: number) => void }) {
   const { publicKey } = useWallet();
   const openWallet = useWalletDialog();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<unknown>();
   const [progress, setProgress] = useState(0);
+  const [done, setDone] = useState<Ticket[]>([]);
   const buyer = publicKey?.toBase58();
 
   // R-82: the app only ever talks to the devnet RPC (Wallets.tsx), so the cluster is fixed; the adapter has no cluster
   // readout, so the wallet-side check lives in the real program adapter when signing.
   async function pay() {
     if (!buyer) return openWallet();
-    setBusy(true); setErr(undefined);
+    setBusy(true); setErr(undefined); setDone([]); setProgress(0);
     const bought: Ticket[] = [];
     try {
       // One buy_ticket transaction per carton (design.md section 12, risk 2).
@@ -175,7 +176,7 @@ function Checkout({ c, cart, total, fee }: { c: Campaign; cart: Carton[]; total:
       go(`ticket/${c.id}/${bought[0].index}`);
     } catch (e) {
       setErr(e);
-      if (bought.length) sessionStorage.setItem("cb-last", JSON.stringify(bought));
+      if (bought.length) { sessionStorage.setItem("cb-last", JSON.stringify(bought)); setDone(bought); onBought(bought.length); }
     } finally { setBusy(false); }
   }
 
@@ -187,6 +188,7 @@ function Checkout({ c, cart, total, fee }: { c: Campaign; cart: Carton[]; total:
         <dt>Protocol fee</dt><dd className="cb-num">{c.feeBps / 100}% of the pool ({sol(fee)} of this order)</dd>
       </dl>
       <p className="cb-warn">Devnet play money. No real funds.</p>
+      {done.length > 0 && <p role="status">{done.length} ticket{done.length > 1 ? "s were" : " was"} bought before the error and removed from your cart. <a className="cb-link" href={`#/ticket/${c.id}/${done[0].index}`}>View ticket</a></p>}
       <button type="button" className="cb-btn cb-btn--primary cb-btn--block" disabled={busy || (!!buyer && cart.length === 0)} onClick={pay}>
         {busy ? `Confirming ${progress + 1} of ${cart.length}…` : buyer ? `Pay ${sol(total)}` : "Connect wallet to pay"}
       </button>
@@ -273,7 +275,7 @@ export function Results({ id }: { id: number }) {
         <dt>Winning ticket</dt><dd className="cb-num">#{winner.index}{me === winner.buyer ? " (yours!)" : ""}</dd>
         <dt>Paid to</dt><dd><span className="cb-num">{short(winner.buyer)}</span> automatically, {sol(prize)}</dd>
         <dt>Treasury fee</dt><dd className="cb-num">{sol(fee)}</dd>
-        <dt>Settled</dt><dd>{dateTime(c.closeTs)}</dd>
+        <dt>Sales closed</dt><dd>{dateTime(c.closeTs)}</dd>
         {c.randAccount && <><dt>Randomness account</dt><dd><a className="cb-num" href={explorer("address", c.randAccount)} target="_blank" rel="noreferrer">{short(c.randAccount)}</a></dd></>}
         {c.randomness && <><dt>Revealed value</dt><dd className="cb-num cb-addr">{c.randomness}</dd></>}
       </dl>

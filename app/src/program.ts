@@ -72,7 +72,7 @@ export function describeError(e: unknown): string {
   if (e instanceof ProgramError) return e.message;
   const msg = e instanceof Error ? e.message : String(e);
   if (/reject|denied|cancel/i.test(msg)) return "The wallet request was cancelled.";
-  return "Something went wrong. Nothing was charged unless your wallet says so.";
+  return "Something went wrong. Check your wallet and tickets before trying again.";
 }
 
 // ---------- mock chain ----------
