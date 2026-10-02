@@ -22,7 +22,7 @@ use events::*;
 use state::*;
 
 // Placeholder program id (keypair not committed). Replaced at devnet deploy; see README receipts.
-declare_id!("8LjPXfLAJAifS62qRt8JAgL7g8cXiWoKDr7WAVsDmx1N");
+declare_id!("GtdcPM3LTX8G8pB1bVW1jWfuxTj3kZmD3axt4Q7whBpC");
 
 #[program]
 pub mod cryptoball {
@@ -198,7 +198,15 @@ pub mod cryptoball {
             let data = ctx.accounts.randomness.data.borrow();
             let r = RandomnessAccountData::parse(data).map_err(|_| error!(E::BadRandomness))?;
             require!(r.seed_slot == c.seed_slot, E::BadSettlement);
-            r.get_value(clock.slot).map_err(|_| error!(E::NotRevealed))?
+            // The oracle's reveal is durable in the randomness account, so settlement reads the STORED value
+            // instead of demanding the exact reveal slot (which made settlement fail if we were one slot late).
+            // The window below ends where cancel_campaign starts, so settle and cancel can never both apply.
+            require!(r.reveal_slot != 0 && r.reveal_slot <= clock.slot, E::NotRevealed);
+            require!(
+                clock.unix_timestamp <= c.committed_at.saturating_add(REVEAL_TIMEOUT_SECS),
+                E::TimeoutNotElapsed
+            );
+            r.value
         };
 
         let idx = winner::winning_index(&revealed, c.ticket_count)?;

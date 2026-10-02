@@ -1,7 +1,7 @@
 // B7: settle_draw (fee + winner payout, atomic) + winner.rs wiring (R-43..R-54, R-78, R-71).
 import { Keypair, PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
 import { expect } from "chai";
-import { World, configPda, ticketPda, CORE_ID, PRICE, SB_ID, valueFor } from "./harness";
+import { World, configPda, ticketPda, CORE_ID, PRICE, SB_ID, REVEAL_TIMEOUT, valueFor } from "./harness";
 
 describe("settle_draw", () => {
   let w: World, camp: any, buyers: Keypair[], rnd: PublicKey;
@@ -41,13 +41,32 @@ describe("settle_draw", () => {
     w.fails([await w.settleIx(camp, rnd, 1, buyers[1].publicKey)], [w.payer], "BadSettlement");
   });
 
-  it("R-78 settle before reveal fails (value not current this slot)", async () => {
-    // revealed in an earlier slot than the settle slot -> get_value rejects
+  it("R-78 settle before reveal fails (nothing revealed yet)", async () => {
     w.reveal(rnd, valueFor(6n));
+    // the oracle wipes the reveal: not revealed for this seed
+    w.randomness(BigInt(w.acct("campaign", camp.key).seedSlot.toString()), 0n, Buffer.alloc(32), SB_ID, rnd);
     w.setTime(w.now, w.slot + 1n);
     w.fails([await w.settleIx(camp, rnd, 2, buyers[2].publicKey)], [w.payer], "NotRevealed");
-    // never revealed at all
-    w.fails([await w.settleIx(camp, rnd, 2, buyers[2].publicKey)], [w.payer], "NotRevealed");
+  });
+
+  it("settles LATER than the reveal slot, and refuses after the reveal window closes", async () => {
+    // The oracle revealed in an earlier slot; settlement is no longer slot-exact.
+    w.reveal(rnd, valueFor(6n));
+    const b0 = w.bal(buyers[2].publicKey);
+    w.setTime(w.now + 900n, w.slot + 400n); // 15 minutes and 400 slots later
+    await settle(2);
+    expect(w.bal(buyers[2].publicKey) - b0).to.equal(prize);
+    expect(Object.keys(w.acct("campaign", camp.key).state)[0]).to.equal("Settled");
+
+    // Past committed_at + REVEAL_TIMEOUT the draw belongs to cancel_campaign, not to settle.
+    const late = await w.campaign(2n);
+    const k = Keypair.generate(); w.fund(k); await w.buy(late, k);
+    const r2 = await w.commit(late);
+    w.reveal(r2, valueFor(0n));
+    w.setTime(w.now + REVEAL_TIMEOUT + 10n, w.slot + 5n);
+    w.fails([await w.settleIx(late, r2, 0, k.publicKey)], [w.payer], "TimeoutNotElapsed");
+    w.ok([await w.cancelIx(late)], [w.payer]); // and cancel still resolves it
+    expect(Object.keys(w.acct("campaign", late.key).state)[0]).to.equal("Cancelled");
   });
 
   it("R-44 swapped randomness account / different seed_slot fails", async () => {
