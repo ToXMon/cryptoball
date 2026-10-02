@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { Balls, Countdown, Faucet, Stage, TicketFace, lazyScene } from "./components";
 import { dateTime, explorer, go, num, pad, quickPick, short, sol, useAsync } from "./lib";
-import { buyTicket, describeError, fetchCampaign, fetchCampaigns, fetchTicket, fetchTickets, funding, fundingNeeded, payout, refundTicket, type Campaign, type Ticket } from "./program";
+import { buyTicket, blocksPayment, describeError, fetchCampaign, fetchCampaigns, fetchTicket, fetchTickets, funding, fundingNeeded, payout, refundTicket, type Campaign, type Ticket } from "./program";
 import { useBalance, useWalletDialog } from "./Wallet";
 
 // Code-split: three.js only loads when a stage scrolls into view on confirmation / results.
@@ -178,9 +178,8 @@ function Checkout({ c, cart, total, fee, onBought }: { c: Campaign; cart: Carton
     // stops the payment: a failed read fails open, because the chain is the real judge of whether the wallet can pay
     // and a wallet that cannot fails there with the funding message.
     setPhase("checking");
-    let have = await read();
-    if (have == null) have = await read();
-    if (have != null && funding(have, false, needed).kind === "short") { setPhase("idle"); return; }
+    const have = await read();
+    if (blocksPayment(funding(have, have == null, needed))) { setPhase("idle"); return; }
     setErr(undefined); setDone([]); setProgress(0);
     setPhase("paying");
     const bought: Ticket[] = [];

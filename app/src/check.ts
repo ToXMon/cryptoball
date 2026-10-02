@@ -1,7 +1,7 @@
 // Smallest runnable check for the pure logic: `pnpm test`.
 import assert from "node:assert/strict";
 import { quickPick, parts, FUNDING_COPY, sol, fundingCopy } from "./lib.ts";
-import { payout, ERROR_COPY, buyTicket, ProgramError, PROGRAM_ID, describeError, fundingNeeded, isFundingError, FAUCET_URL, FEE_MARGIN_LAMPORTS, FUNDING_ERROR, DEVNET_RPC, needsFunding, funding, CARTON_COST_LAMPORTS } from "./program.ts";
+import { payout, ERROR_COPY, buyTicket, ProgramError, PROGRAM_ID, describeError, fundingNeeded, isFundingError, FAUCET_URL, FEE_MARGIN_LAMPORTS, FUNDING_ERROR, DEVNET_RPC, needsFunding, funding, CARTON_COST_LAMPORTS, blocksPayment } from "./program.ts";
 import { readFileSync } from "node:fs";
 import { accountFromPrfOutput } from "./passkeyWallet.ts";
 
@@ -23,7 +23,6 @@ await assert.rejects(buyTicket("w", 1, [5, 5, 6, 7, 8], 1), (e) => e instanceof 
 const rent = (space: number) => 3_480n * 2n * BigInt(128 + space);
 const cartonCost = rent(8 + 108) + rent(165) + 10_000n; // ticket account, Core asset account, two signatures per tx
 assert.equal(fundingNeeded(100_000_000n), 104_000_000n); // 0.1 SOL ticket + 0.004 SOL of rent and fee
-assert.equal(CARTON_COST_LAMPORTS, 4_000_000n);
 for (let count = 1; count <= 5; count++) {
   assert.ok(fundingNeeded(100_000_000n, count) >= 100_000_000n * BigInt(count) + cartonCost, `cart of ${count}`);
 }
@@ -56,11 +55,14 @@ assert.ok(/free devnet SOL/i.test(FUNDING_ERROR));
 assert.match(FUNDING_COPY.faucet, /free devnet test SOL/i);
 assert.match(FUNDING_COPY.faucet, /no value/i);
 
-// One funding rule behind both surfaces. A read that failed leaves the balance undefined, which is the very value the
-// pre-payment gate asks about, so that state must not block a payment: a funded wallet whose balance read failed still
-// reaches the chain, which is the real judge, and fails there with FUNDING_ERROR if it really cannot pay.
-// What that same state says is one rule, so the checkout card and the wallet dialog card cannot drift apart: neither may
-// claim a wallet that could not be read needs SOL, and both must offer a way to read again.
+// The pre-payment gate asks the same rule, and it fails open on a read that did not come back: a failed read leaves the
+// balance undefined, which is the very value the gate sees, so that state must not stop a payment. A funded wallet whose
+// read failed still reaches the chain, the real judge, and fails there with FUNDING_ERROR if it really cannot pay.
+assert.ok(blocksPayment(funding(0n, false, fundingNeeded(100_000_000n, 1)))); // a read that came back short stops it
+assert.ok(!blocksPayment(funding(undefined, true, fundingNeeded(100_000_000n, 1)))); // a read that failed must not
+
+// What that same state says is one rule too, so the checkout card and the wallet dialog card cannot drift apart: neither
+// may claim a wallet that could not be read needs SOL.
 const unread = fundingCopy(funding(undefined, true, fundingNeeded(100_000_000n, 1)))!;
 assert.deepEqual(unread, { heading: FUNDING_COPY.unreadHeading, note: FUNDING_COPY.unread });
 assert.doesNotMatch(unread.note, /paste/i);

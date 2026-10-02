@@ -48,7 +48,7 @@ export const FAUCET_URL = "https://faucet.solana.com";
  * mints, plus the transaction fee, since a checkout sends one transaction per carton. Rounded up (rent is about
  * 0.0037 SOL of that) so the stated need covers a cart of any size and never lands on zero.
  */
-export const CARTON_COST_LAMPORTS = 4_000_000n; // 0.004 SOL
+const CARTON_COST_LAMPORTS = 4_000_000n; // 0.004 SOL
 
 /** What a checkout actually needs: the ticket price(s) plus that per-carton cost. An empty cart needs nothing. */
 export const fundingNeeded = (priceLamports: bigint, count = 1) => {
@@ -76,6 +76,13 @@ export const funding = (balance: bigint | undefined, unreadable: boolean, needed
   if (needed == null) return balance === 0n ? { kind: "empty" } : { kind: "ok" };
   return balance < needed ? { kind: "short", balance, needed } : { kind: "ok" };
 };
+
+/**
+ * Whether a payment has to stop on this state: only a read that came back and found the wallet short does. A read that
+ * failed fails open, because the chain is the real judge of whether the wallet can pay and a wallet that cannot fails
+ * there with FUNDING_ERROR.
+ */
+export const blocksPayment = (fund: Funding) => fund.kind === "short";
 
 /** Raw RPC failures that really mean "this wallet has no money" (an unfunded devnet wallet). */
 export const isFundingError = (e: unknown) =>

@@ -17,14 +17,13 @@ export const useWalletDialog = () => useContext(Ctx);
 export function Wallets({ children }: { children: ReactNode }) {
   const ref = useRef<HTMLDialogElement>(null);
   const [err, setErr] = useState<string>();
-  const [opens, setOpens] = useState(0);
-  const open = () => { setOpens((n) => n + 1); ref.current?.showModal(); };
+  const open = () => ref.current?.showModal();
   return (
     <ConnectionProvider endpoint={DEVNET_RPC}>
       <WalletProvider wallets={[]} autoConnect onError={(e) => setErr(passkeyErrorText(e))}>
         <Ctx.Provider value={open}>
           {children}
-          <WalletDialog dialogRef={ref} error={err} clearError={() => setErr(undefined)} opens={opens} />
+          <WalletDialog dialogRef={ref} error={err} clearError={() => setErr(undefined)} />
         </Ctx.Provider>
       </WalletProvider>
     </ConnectionProvider>
@@ -72,7 +71,7 @@ function Balance({ address }: { address: string }) {
   return <Faucet address={address} fund={fund} retry={read} />;
 }
 
-function WalletDialog({ dialogRef, error, clearError, opens }: { dialogRef: React.RefObject<HTMLDialogElement | null>; error?: string; clearError: () => void; opens: number }) {
+function WalletDialog({ dialogRef, error, clearError }: { dialogRef: React.RefObject<HTMLDialogElement | null>; error?: string; clearError: () => void }) {
   const { wallets, select, disconnect, publicKey } = useWallet();
   const [phrase, setPhrase] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -98,7 +97,7 @@ function WalletDialog({ dialogRef, error, clearError, opens }: { dialogRef: Reac
       {publicKey ? (
         <>
           <p className="cb-num cb-addr">{publicKey.toBase58()}</p>
-          <Balance key={opens} address={publicKey.toBase58()} />
+          <Balance address={publicKey.toBase58()} />
           {publicKey.toBase58() === passkeyAddress() && (
             <button type="button" className="cb-btn cb-btn--ghost" disabled={busy} onClick={() => void backup()}>{busy ? "Checking…" : "Show recovery phrase"}</button>
           )}

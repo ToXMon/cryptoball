@@ -91,7 +91,7 @@ export function Stage<P extends object>({ flat, scene, sceneProps, className = "
 
 export const lazyScene = <P,>(load: () => Promise<{ default: ComponentType<P> }>) => lazy(load);
 
-const COPIED = "Address copied. Paste it into the faucet.";
+const COPIED = "Address copied.";
 
 /**
  * Funding helper for a wallet that cannot cover a ticket: the address, a copy button and a link out to the
