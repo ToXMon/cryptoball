@@ -43,6 +43,13 @@ pub struct Campaign {
     pub randomness: [u8; 32],
     pub winning_index: u32,
     pub winner: Pubkey,
+    /// Drawn 5-of-69 + Cryptoball numbers, derived at settle. Display only under the raffle rule
+    /// (the winning ticket is `winning_index`, not an exact match).
+    pub winning_numbers: [u8; 5],
+    pub winning_bonus: u8,
+    /// Settlement split, fixed at settle: fee_lamports + prize_lamports == price * ticket_count.
+    pub fee_lamports: u64,
+    pub prize_lamports: u64,
     pub bump: u8,
     pub vault_bump: u8,
 }
@@ -51,6 +58,8 @@ pub struct Campaign {
 pub enum TicketStatus {
     Active,
     Refunded,
+    /// The winning ticket after `payout_ticket`.
+    Paid,
 }
 
 /// One purchased ticket. Seeds: ["ticket", campaign, index u32 LE].

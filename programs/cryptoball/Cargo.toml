@@ -27,3 +27,4 @@ mpl-core = { version = "=0.12.1", default-features = false, features = ["anchor-
 # `devnet` feature selects the devnet Switchboard program id at compile time (the crate's
 # runtime SB_ENV check does not exist on-chain). Mainnet build = different feature set, out of MVP scope.
 switchboard-on-demand = { version = "=0.13.0", default-features = false, features = ["solana-v2", "devnet"] }
+solana-keccak-hasher = "=3.1.0"

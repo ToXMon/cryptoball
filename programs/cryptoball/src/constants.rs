@@ -24,8 +24,13 @@ pub const MAX_TICKETS: u32 = 10_000;
 /// Floor: a system-owned vault/wallet must hold >= 890_880 lamports (rent-exempt, 0 data) after any
 /// credit, so even the smallest prize (price * (1 - MAX_FEE_BPS/10_000)) must clear it: 2_000_000 * 0.8 = 1.6M.
 pub const MIN_TICKET_PRICE_LAMPORTS: u64 = 2_000_000;
+/// Ceiling so price * max_tickets can never approach u64 overflow and a typo cannot create a 1000-SOL ticket.
+pub const MAX_TICKET_PRICE_LAMPORTS: u64 = 1_000_000_000; // 1 SOL, devnet placeholder
 /// Seconds after commit_draw before anyone may cancel an unrevealed draw (placeholder).
 pub const REVEAL_TIMEOUT_SECS: i64 = 3_600;
+
+/// Static metadata uri for every ticket NFT (DEVNET PLACEHOLDER; never trusted by the program).
+pub const TICKET_URI: &str = "https://cryptoball.invalid/ticket.json";
 
 /// Pinned external program ids (never read from instruction accounts). Source: docs/design.md section 10.
 pub const MPL_CORE_ID: Pubkey = pubkey!("CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d");

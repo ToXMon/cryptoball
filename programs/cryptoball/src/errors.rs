@@ -3,8 +3,6 @@ use anchor_lang::prelude::*;
 /// Typed errors; the client maps each code to an English message (R-69).
 #[error_code]
 pub enum CryptoballError {
-    #[msg("Instruction body not implemented yet (phase 3)")]
-    NotImplemented,
     #[msg("Fee above the hard cap")]
     FeeTooHigh,
     #[msg("Unauthorized")]
@@ -33,6 +31,16 @@ pub enum CryptoballError {
     TimeoutNotElapsed,
     #[msg("Ticket already refunded")]
     AlreadyRefunded,
+    #[msg("Ticket is not the winning ticket")]
+    NotWinner,
+    #[msg("Prize already paid")]
+    AlreadyPaid,
+    #[msg("Draw cannot be settled by this ticket or randomness account")]
+    BadSettlement,
+    #[msg("Campaign has no tickets")]
+    NoTickets,
+    #[msg("Treasury wallet is below the rent-exempt minimum")]
+    TreasuryBelowRent,
     #[msg("Arithmetic overflow")]
     Overflow,
 }

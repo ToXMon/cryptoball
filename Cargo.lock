@@ -756,6 +756,7 @@ version = "0.1.0"
 dependencies = [
  "anchor-lang 0.32.1",
  "mpl-core",
+ "solana-keccak-hasher 3.1.0",
  "switchboard-on-demand",
 ]
 

@@ -2,11 +2,11 @@
 
 Crypto lottery on Solana. Anchor program + React frontend. **Devnet-only MVP, play money, no real funds.**
 
-Raffle-style: players buy tickets with SOL (5 numbers from 1-69 plus a Cryptoball bonus ball from 1-26, up to 5 tickets per checkout, quick-pick available). Each ticket mints a Metaplex Core NFT receipt. After the campaign closes, anyone commits and then settles a Switchboard On-Demand randomness draw; one ticket wins, 10 percent goes to the treasury, and the program pays the winner's wallet in the same transaction. No claim step.
+Raffle-style: players buy tickets with SOL (5 numbers from 1-69 plus a Cryptoball bonus ball from 1-26, up to 5 tickets per checkout, quick-pick available). Each ticket mints a Metaplex Core NFT receipt. After the campaign closes, anyone commits and then settles a Switchboard On-Demand randomness draw; one ticket wins and 10 percent goes to the treasury at settle. Anyone may then call `payout_ticket`, which pays the prize to the winning ticket's buyer wallet (permissionless, destination fixed to `ticket.buyer`).
 
 ## Status
 
-Phase 1 and 2 (requirements, architecture, scaffold). The program is interface stubs only: every instruction returns `NotImplemented`. Build order is `docs/design.md` section 17.
+Phase 3 program build: all instructions implemented (`initialize`, `update_config`, `nominate_admin`, `accept_admin`, `create_campaign`, `buy_ticket`, `commit_draw`, `settle_draw`, `payout_ticket`, `cancel_campaign`, `refund_ticket`), each with happy-path and negative tests on LiteSVM (`tests/0*.test.ts`) plus a lifecycle and conservation test. Deviations from `docs/design.md`: `settle_draw` pays the fee and records the prize, a separate permissionless `payout_ticket` pays the winner (per-ticket fan-out, ticket status `Paid`); `settle_draw` also derives the 5-of-69 plus bonus display numbers (`winner::winning_numbers`); `initialize` takes the treasury as an account; `close_campaign` is still not built.
 
 | Doc | What |
 |---|---|
@@ -18,7 +18,7 @@ Phase 1 and 2 (requirements, architecture, scaffold). The program is interface s
 
 ```
 programs/cryptoball/   Anchor program (stubs, state, events, errors, constants, winner.rs)
-tests/                 ts-mocha harness (seed smoke test now; per-instruction tests in phase 3)
+tests/                 ts-mocha + LiteSVM: harness.ts, one test file per instruction, lifecycle; fixtures/mpl_core.so = devnet Core binary
 app/                   React + Vite shell; src/tokens.css = Prime Time design tokens
 docs/                  requirements, design, diagrams
 ```
@@ -39,7 +39,7 @@ Why these features: `docs/design.md` section 10.
 ```
 cargo test -p cryptoball          # pinned-id check
 cargo build-sbf --manifest-path programs/cryptoball/Cargo.toml
-pnpm install && pnpm test         # ts-mocha seed smoke test
+anchor build && pnpm install && pnpm test   # LiteSVM suite (needs target/deploy/cryptoball.so)
 cd app && pnpm install && pnpm dev
 ```
 
