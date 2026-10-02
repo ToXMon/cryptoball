@@ -14,3 +14,5 @@ pub struct DrawSettled { pub campaign: Pubkey, pub randomness: [u8; 32], pub win
 pub struct CampaignCancelled { pub campaign: Pubkey }
 #[event]
 pub struct TicketRefunded { pub campaign: Pubkey, pub index: u32, pub buyer: Pubkey, pub lamports: u64 }
+#[event]
+pub struct SolClaimed { pub claimer: Pubkey, pub amount: u64, pub lifetime_claimed: u64, pub pool_dispensed: u64 }

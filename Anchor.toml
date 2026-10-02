@@ -9,6 +9,12 @@ skip-lint = false
 [programs.devnet]
 cryptoball = "GtdcPM3LTX8G8pB1bVW1jWfuxTj3kZmD3axt4Q7whBpC"
 
+# `anchor build` runs against the provider cluster (localnet). Without this entry Anchor generates a
+# fresh throwaway keypair and silently rewrites `declare_id!` to it, so the local build would stop
+# matching the deployed devnet program. Pin localnet to the same id.
+[programs.localnet]
+cryptoball = "GtdcPM3LTX8G8pB1bVW1jWfuxTj3kZmD3axt4Q7whBpC"
+
 [provider]
 cluster = "localnet"
 wallet = "~/.config/solana/id.json"

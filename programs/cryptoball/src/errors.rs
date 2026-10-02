@@ -41,4 +41,14 @@ pub enum CryptoballError {
     RandomnessExhausted,
     #[msg("Arithmetic overflow")]
     Overflow,
+    // Appended, never inserted: an error's number is part of the client contract, so existing
+    // codes must keep their values across upgrades.
+    #[msg("Claim amount is zero or above the per-claim maximum")]
+    ClaimTooLarge,
+    #[msg("This wallet has reached its lifetime faucet cap")]
+    ClaimLifetimeCap,
+    #[msg("The faucet pool is exhausted")]
+    FaucetDrained,
+    #[msg("The faucet vault holds less than the claim amount")]
+    FaucetEmpty,
 }

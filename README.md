@@ -6,7 +6,7 @@ Raffle-style: players buy tickets with SOL (5 numbers from 1-69 plus a Cryptobal
 
 ## Status
 
-Phases 1 to 2 (requirements, architecture, scaffold), the frontend phase and the Phase 3 program build: all instructions implemented (`initialize`, `update_config`, `nominate_admin`, `accept_admin`, `create_campaign`, `buy_ticket`, `commit_draw`, `settle_draw`, `cancel_campaign`, `refund_ticket`), each with happy-path and negative tests on LiteSVM (`tests/0*.test.ts`) plus a lifecycle and conservation test. `settle_draw` also derives the 5-of-69 plus Cryptoball display numbers (`winner::winning_numbers`, unbiased rejection sampling, fails closed instead of falling back to modulo); `initialize` takes the treasury as an account; `close_campaign` is still not built (design.md section 5).
+Phases 1 to 2 (requirements, architecture, scaffold), the frontend phase and the Phase 3 program build: all instructions implemented (`initialize`, `update_config`, `nominate_admin`, `accept_admin`, `create_campaign`, `buy_ticket`, `commit_draw`, `settle_draw`, `cancel_campaign`, `refund_ticket`, `claim_sol`), each with happy-path and negative tests on LiteSVM (`tests/0*.test.ts`) plus a lifecycle and conservation test. `claim_sol` is a devnet-only capped SOL faucet with no server behind it; see "Devnet SOL faucet" below. `settle_draw` also derives the 5-of-69 plus Cryptoball display numbers (`winner::winning_numbers`, unbiased rejection sampling, fails closed instead of falling back to modulo); `initialize` takes the treasury as an account; `close_campaign` is still not built (design.md section 5).
 The program is **live on devnet** (receipts below) and the web app talks to it for real: `app/src/program.ts` builds `buy_ticket` / `refund_ticket` instructions against the deployed program id and the devnet RPC. The web app also offers a **passkey wallet** (`app/src/passkeyWallet.ts`): a Wallet Standard wallet whose ed25519 key is derived on the player's device from a WebAuthn passkey PRF output via [mera](https://mera.category.xyz) 0.2.0. It is a plain keypair, not a smart account; installed wallets (Phantom and friends) remain as a second path in the same dialog.
 `settle_draw` reads the value the oracle persisted in the randomness account, so settlement is not bound to the exact reveal slot; it must still land inside the same window `cancel_campaign` uses (see the receipts' operational notes). Build order is `docs/design.md` section 17.
 
@@ -15,6 +15,41 @@ The program is **live on devnet** (receipts below) and the web app talks to it f
 | [docs/requirements.md](docs/requirements.md) | 88 atomic requirements, decisions traceability, out-of-scope list |
 | [docs/design.md](docs/design.md) | Account map, PDA seeds, instructions, state machine, CPI plan, threat model, swappable winner unit |
 | [docs/diagrams/](docs/diagrams/) | D1-D9 architecture diagrams (SVG) |
+
+## Devnet SOL faucet (`claim_sol`)
+
+A capped, on-chain drip so a player can get devnet SOL without a server. **Devnet only, play money.**
+
+- **Permissionless.** Anyone on devnet can claim, not just the captain's friends. That is deliberate: devnet SOL is worthless. **On a real-money deployment this instruction must not exist** (design.md T19).
+- **Three on-chain ceilings, all program constants in `programs/cryptoball/src/constants.rs`.** The client cannot raise any of them; the captain changes one constant and redeploys.
+  - `MAX_CLAIM_LAMPORTS` = `110_000_000` (0.11 SOL) per claim.
+  - `MAX_CLAIM_LIFETIME_LAMPORTS` = `330_000_000` (0.33 SOL) per wallet, cumulative.
+  - `FAUCET_POOL_LAMPORTS` = `1_000_000_000` (1.0 SOL) ever dispensed, tracked in program state.
+- **Sybil-weak, on purpose.** There is no identity behind a wallet, so a determined caller can claim from many wallets. The pool ceiling is the real backstop.
+- **Money separation.** The faucet vault is a bare system PDA seeded `["faucet-vault"]`, whose derivation contains no campaign key. Ticket proceeds, prizes and refunds are structurally unreachable from `claim_sol`.
+
+### Wiring a button (UI lane)
+
+Instruction: `claim_sol`, args `amount: u64` (lamports, 1..=110_000_000).
+
+| # | Account | Writable | Signer | Notes |
+|---|---|---|---|---|
+| 1 | `claimer` | yes | **yes** | connected wallet; pays the tx fee and the rent of the two PDAs on their first creation |
+| 2 | `recipient` | yes | no | must equal `claimer` (`BadAccount` otherwise) |
+| 3 | `claimRecord` | yes | no | PDA `["claim", claimer]`, created if missing |
+| 4 | `faucet` | yes | no | PDA `["faucet"]`, created if missing; holds `dispensed` |
+| 5 | `faucetVault` | yes | no | PDA `["faucet-vault"]`, the funded SOL |
+| 6 | `systemProgram` | no | no | `11111111111111111111111111111111` |
+
+Event `SolClaimed { claimer, amount, lifetime_claimed, pool_dispensed }`.
+
+| Error code | Number | Message |
+|---|---|---|
+| `ClaimTooLarge` | 6019 | Claim amount is zero or above the per-claim maximum |
+| `ClaimLifetimeCap` | 6020 | This wallet has reached its lifetime faucet cap |
+| `FaucetDrained` | 6021 | The faucet pool is exhausted |
+| `FaucetEmpty` | 6022 | The faucet vault holds less than the claim amount |
+| `BadAccount` | 6011 | Account does not match the derived address |
 
 ## Layout
 

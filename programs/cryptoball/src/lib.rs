@@ -282,6 +282,47 @@ pub mod cryptoball {
         emit!(TicketRefunded { campaign: c.key(), index: t.index, buyer: t.buyer, lamports: paid });
         Ok(())
     }
+
+    /// DEVNET SOL FAUCET. Permissionless: any wallet may claim. NEVER ship this on a real-money
+    /// deployment (docs/design.md section 11).
+    ///
+    /// Signer: any claimer (no allowlist - there is no identity behind a wallet, so the caps are
+    /// Sybil-weak by construction; FAUCET_POOL_LAMPORTS is the real backstop). `recipient` is pinned
+    /// to the signer, so nobody can route a claim to a third party.
+    ///
+    /// Three on-chain ceilings, all program constants the client cannot touch: `amount` <= 0.11 SOL
+    /// (per claim), the caller's lifetime total <= 0.33 SOL, and the pool total ever dispensed <= 1.0 SOL.
+    /// The only money moved is from the `faucet-vault` PDA, whose derivation contains no campaign key,
+    /// so this instruction cannot reach ticket proceeds, a prize or a refund.
+    pub fn claim_sol(ctx: Context<ClaimSol>, amount: u64) -> Result<()> {
+        require!(amount > 0 && amount <= MAX_CLAIM_LAMPORTS, E::ClaimTooLarge);
+
+        let lifetime = ctx.accounts.claim_record.claimed.checked_add(amount).ok_or(E::Overflow)?;
+        require!(lifetime <= MAX_CLAIM_LIFETIME_LAMPORTS, E::ClaimLifetimeCap);
+        let dispensed = ctx.accounts.faucet.dispensed.checked_add(amount).ok_or(E::Overflow)?;
+        require!(dispensed <= FAUCET_POOL_LAMPORTS, E::FaucetDrained);
+
+        // Keep the vault rent-exempt whatever we take out; a zero-length system account is rejected at runtime.
+        let free = ctx.accounts.faucet_vault.lamports().saturating_sub(Rent::get()?.minimum_balance(0));
+        require!(free >= amount, E::FaucetEmpty);
+        let bump = Pubkey::find_program_address(&[FAUCET_VAULT_SEED], &crate::ID).1;
+        let seeds: &[&[u8]] = &[FAUCET_VAULT_SEED, &[bump]];
+        transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.system_program.to_account_info(),
+                Transfer { from: ctx.accounts.faucet_vault.to_account_info(), to: ctx.accounts.recipient.to_account_info() },
+                &[seeds],
+            ),
+            amount,
+        )?;
+
+        let claimer = ctx.accounts.claimer.key();
+        ctx.accounts.claim_record.claimer = claimer;
+        ctx.accounts.claim_record.claimed = lifetime;
+        ctx.accounts.faucet.dispensed = dispensed;
+        emit!(SolClaimed { claimer, amount, lifetime_claimed: lifetime, pool_dispensed: dispensed });
+        Ok(())
+    }
 }
 
 fn emit_config(c: &Config) {
@@ -462,5 +503,28 @@ pub struct RefundTicket<'info> {
     pub vault: SystemAccount<'info>,
     #[account(mut, address = ticket.buyer @ E::BadAccount)]
     pub buyer_wallet: SystemAccount<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+// ---- Devnet faucet accounts. Both PDAs are init_if_needed (the first claimer pays their rent);
+// the vault is a plain system account holding only devnet SOL, never campaign funds.
+#[derive(Accounts)]
+pub struct ClaimSol<'info> {
+    #[account(mut)]
+    pub claimer: Signer<'info>,
+    /// Pinned to the signer: a claim can only ever pay the wallet that signed it.
+    #[account(mut, address = claimer.key() @ E::BadAccount)]
+    pub recipient: SystemAccount<'info>,
+    #[account(
+        init_if_needed, payer = claimer, space = 8 + ClaimRecord::INIT_SPACE,
+        seeds = [CLAIM_SEED, claimer.key().as_ref()], bump
+    )]
+    pub claim_record: Account<'info, ClaimRecord>,
+    #[account(init_if_needed, payer = claimer, space = 8 + Faucet::INIT_SPACE, seeds = [FAUCET_SEED], bump)]
+    pub faucet: Account<'info, Faucet>,
+    /// The dedicated faucet vault: the canonical PDA for ["faucet-vault"], recomputed rather than
+    /// taken from client input so the CPI signer seeds always match the account the caller passed.
+    #[account(mut, address = Pubkey::find_program_address(&[FAUCET_VAULT_SEED], &crate::ID).0 @ E::BadAccount)]
+    pub faucet_vault: SystemAccount<'info>,
     pub system_program: Program<'info, System>,
 }

@@ -30,6 +30,13 @@ export const configPda = () => pda([Buffer.from("config")]);
 export const campaignPda = (id: bigint) => pda([Buffer.from("campaign"), u64le(id)]);
 export const vaultPda = (c: PublicKey) => pda([Buffer.from("vault"), c.toBuffer()]);
 export const ticketPda = (c: PublicKey, i: number) => pda([Buffer.from("ticket"), c.toBuffer(), u32le(i)]);
+export const faucetPda = () => pda([Buffer.from("faucet")]);
+export const faucetVaultPda = () => pda([Buffer.from("faucet-vault")]);
+export const claimPda = (claimer: PublicKey) => pda([Buffer.from("claim"), claimer.toBuffer()]);
+// Faucet ceilings are program constants (constants.rs); mirrored here only to assert the numbers.
+export const MAX_CLAIM = 110_000_000n; // 0.11 SOL per claim
+export const LIFETIME_CAP = 330_000_000n; // 0.33 SOL per wallet
+export const POOL_CAP = 1_000_000_000n; // 1.0 SOL ever dispensed
 export const programDataPda = () => PublicKey.findProgramAddressSync([PROGRAM_ID.toBuffer()], LOADER)[0];
 
 export class World {
@@ -66,6 +73,13 @@ export class World {
 
   set(key: PublicKey, data: Buffer, owner: PublicKey, executable = false) {
     this.svm.setAccount(key, { lamports: Number(this.svm.minimumBalanceForRentExemption(BigInt(data.length))) + 1, data, owner, executable });
+  }
+
+  /** Overwrite an existing account's lamports (tests that need a short-funded vault). */
+  setBalance(key: PublicKey, lamports: bigint) {
+    const a = this.svm.getAccount(key);
+    if (!a) throw new Error(`no account ${key.toBase58()}`);
+    this.svm.setAccount(key, { lamports, data: a.data, owner: a.owner, executable: a.executable });
   }
 
   setTime(ts: bigint, slot?: bigint) {
@@ -198,6 +212,22 @@ export class World {
       payer: this.payer.publicKey, campaign: camp.key, ticket: ticketPda(camp.key, idx), vault: camp.vault,
       buyerWallet: wallet, systemProgram: SystemProgram.programId,
     }).instruction();
+  }
+
+  // ---- devnet faucet (tests/08_faucet.test.ts)
+  /** Credit the dedicated faucet vault the way the deploy wallet does: a plain system transfer. */
+  fundFaucet(sol = 1n, from = this.admin) {
+    this.ok([SystemProgram.transfer({ fromPubkey: from.publicKey, toPubkey: faucetVaultPda(), lamports: sol * SOL })], [from]);
+  }
+  claimIx(claimer: Keypair, amount: bigint, o: { recipient?: PublicKey; vault?: PublicKey } = {}) {
+    return this.m.claimSol(new anchor.BN(amount.toString())).accountsPartial({
+      claimer: claimer.publicKey, recipient: o.recipient ?? claimer.publicKey,
+      claimRecord: claimPda(claimer.publicKey), faucet: faucetPda(),
+      faucetVault: o.vault ?? faucetVaultPda(), systemProgram: SystemProgram.programId,
+    }).instruction();
+  }
+  async claim(claimer: Keypair, amount: bigint) {
+    return this.ok([await this.claimIx(claimer, amount)], [claimer]);
   }
 }
 

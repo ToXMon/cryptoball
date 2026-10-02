@@ -56,8 +56,13 @@ All program-owned accounts carry the Anchor 8-byte discriminator. Bumps are stor
 | Core asset (ticket NFT) | Metaplex Core | fresh keypair signer at buy | per ticket | owner = buyer; collection; Attributes n1..n5, bonus | buy_ticket (CPI) |
 | Randomness account | Switchboard On-Demand | keypair created by the keeper through the Switchboard SDK | per draw | read-only for us | Switchboard commit and reveal |
 | Treasury | System program | n/a | global | a plain wallet; address equals `Config.treasury` | receives the fee |
+| Faucet | cryptoball | `["faucet"]` | global | dispensed (total ever paid out); created by the first claim | claim_sol |
+| Faucet vault | System program | `["faucet-vault"]` | global | lamports only; funded by a plain transfer from the deploy wallet | claim_sol (debit only) |
+| ClaimRecord | cryptoball | `["claim", claimer]` | per wallet | claimer, claimed (lifetime total) | claim_sol |
 
 Account space uses `InitSpace`; no `Vec` fields exist, so there are no unbounded collections (FYEO dos-resource). Ticket index equals `ticket_count` at purchase, so indexes are dense `0..count-1` and the winning index maps straight to a PDA.
+
+The one `find_program_address` call in the program is the devnet faucet vault (`claim_sol`), whose vault account carries no bump of its own to read. No lottery path recomputes a PDA: every lottery PDA is seeds plus a stored bump (R-72).
 
 **Why the vault is a bare system PDA.** The captain chose SOL. A zero-data system-owned PDA needs no token-account validation surface (mint, owner, delegate, close authority all disappear) and is trivially read from a public account (R-61). Rent: the first credit is the ticket price, which the floor constant keeps above the 890,880 lamport rent-exempt minimum for a zero-data account. The vault drains to zero at settlement or after the last refund, which is allowed.
 
@@ -190,6 +195,8 @@ Lottery and funds threats:
 | T15 | Rent-exempt breakage on transfers to empty accounts | Price floor 2,000,000 lamports; treasury must hold the rent-exempt minimum when set | R-15, R-51 | price below floor fails |
 | T16 | Arbitrary CPI target | Program ids pinned; typed `Program<>` | R-73 | attacker program id fails |
 | T17 | Panics on user input | Typed errors, no `unwrap`/`expect` on user paths | R-72 | fuzzed inputs never abort |
+| T18 | Faucet drains the lottery, or one wallet drains the faucet | The faucet vault PDA's derivation contains no campaign key, so `vault_pay` and every ticket/prize/refund path cannot reach it. Three on-chain ceilings (per claim, per-wallet lifetime, pool total) are program constants, never instruction arguments | - | `08_faucet.test.ts`: caps, wallet/vault separation, settlement unchanged |
+| T19 | Faucet abused on a real-money deployment | Accepted for devnet, where SOL is worthless and unauthenticated. Mainnet gate: `claim_sol` and every constant under the faucet block must be deleted before a mainnet deploy, because there is no identity behind a wallet and the caps are Sybil-weak (many wallets = many caps) | D10 | n/a (deployment gate, not a test) |
 
 ## 12. Open risks and the spike gate
 

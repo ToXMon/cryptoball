@@ -15,6 +15,24 @@ pub struct Config {
     pub bump: u8,
 }
 
+/// Devnet faucet ledger. Seeds: ["faucet"]. Created by the first claim; funded only by the admin wallet
+/// transferring into the `faucet-vault` PDA. Holds nothing but the pool tally, never campaign funds.
+#[account]
+#[derive(InitSpace)]
+pub struct Faucet {
+    /// Total lamports ever dispensed. The pool ceiling is the constant FAUCET_POOL_LAMPORTS.
+    pub dispensed: u64,
+}
+
+/// One wallet's lifetime faucet tally. Seeds: ["claim", claimer].
+#[account]
+#[derive(InitSpace)]
+pub struct ClaimRecord {
+    pub claimer: Pubkey,
+    /// Lifetime lamports claimed by this wallet. Capped at MAX_CLAIM_LIFETIME_LAMPORTS.
+    pub claimed: u64,
+}
+
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, InitSpace)]
 pub enum CampaignState {
     Open,
