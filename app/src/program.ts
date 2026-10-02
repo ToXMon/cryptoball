@@ -63,11 +63,11 @@ export const fundingNeeded = (priceLamports: bigint, count = 1) => {
 export type Funding = { kind: "ok" } | { kind: "unreadable" } | { kind: "empty" } | { kind: "short"; balance: bigint; needed: bigint };
 
 /**
- * The one funding rule every surface shares: the checkout card, the wallet dialog card and the pre-payment gate all read
- * the same state from the latest read, so shrinking the cart clears the funding prompt and growing it raises one again,
- * and nothing latches. `needed` is what the surface is about to ask for, and a surface with no checkout in hand passes
- * none. A read that failed is its own state, so a flaky RPC neither claims the wallet is short nor hides the helper; a
- * balance not read yet claims nothing.
+ * The one funding rule every surface shares: the checkout card and the wallet dialog card both read the same state from
+ * the latest read, so shrinking the cart clears the funding prompt and growing it raises one again, and nothing latches.
+ * `needed` is what the surface is about to ask for, and a surface with no checkout in hand passes none. A read that failed
+ * is its own state at every cart size, so a flaky RPC neither claims the wallet is short nor hides the helper; a balance
+ * not read yet claims nothing. Nothing here stops a payment: the chain is the judge of whether a wallet can pay.
  */
 export const funding = (balance: bigint | undefined, unreadable: boolean, needed?: bigint): Funding => {
   if (needed != null && needed <= 0n) return { kind: "ok" }; // nothing selected, so there is nothing to fund and nothing to ask for
@@ -76,13 +76,6 @@ export const funding = (balance: bigint | undefined, unreadable: boolean, needed
   if (needed == null) return balance === 0n ? { kind: "empty" } : { kind: "ok" };
   return balance < needed ? { kind: "short", balance, needed } : { kind: "ok" };
 };
-
-/**
- * Whether a payment has to stop on this state: only a read that came back and found the wallet short does. A read that
- * failed fails open, because the chain is the real judge of whether the wallet can pay and a wallet that cannot fails
- * there with FUNDING_ERROR.
- */
-export const blocksPayment = (fund: Funding) => fund.kind === "short";
 
 /** Raw RPC failures that really mean "this wallet has no money" (an unfunded devnet wallet). */
 export const isFundingError = (e: unknown) =>

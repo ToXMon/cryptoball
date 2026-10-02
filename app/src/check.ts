@@ -43,8 +43,12 @@ assert.equal(funding(funded, false, short).kind, "short"); // cart grew past wha
 assert.equal(funding(funded, false, fundingNeeded(100_000_000n, 1)).kind, "ok"); // same balance, cart shrank back
 assert.equal(funding(250_000_000n, false, short).kind, "ok");
 assert.equal(funding(undefined, false, fundingNeeded(100_000_000n, 1)).kind, "ok"); // no read yet: no claim, no gate
-// A failed read is its own state: the helper still shows, with a way to read again, instead of claiming nothing.
-assert.equal(funding(undefined, true, fundingNeeded(100_000_000n, 1)).kind, "unreadable");
+// A failed read is its own state at every cart size: the helper still shows, with a way to read again, instead of claiming
+// anything about the wallet, and no payment decision can come out of it. Paying reads nothing, so a wallet whose read
+// failed still reaches the chain, the real judge, and fails there with FUNDING_ERROR if it really cannot pay.
+for (let count = 1; count <= 5; count++) {
+  assert.equal(funding(undefined, true, fundingNeeded(100_000_000n, count)).kind, "unreadable", `cart of ${count}`);
+}
 assert.match(FUNDING_COPY.unread, /balance could not be read/i);
 assert.equal(FUNDING_COPY.short(funded, short), `This wallet has ${sol(funded)}. One checkout needs ${sol(short)}: the ticket plus a small fee margin.`);
 assert.equal(describeError(new Error("Attempt to debit an account but found no record of a prior credit.")), FUNDING_ERROR);
@@ -54,12 +58,6 @@ assert.match(FUNDING_COPY.short(0n, fundingNeeded(100_000_000n, 1)), /0.104 SOL/
 assert.ok(/free devnet SOL/i.test(FUNDING_ERROR));
 assert.match(FUNDING_COPY.faucet, /free devnet test SOL/i);
 assert.match(FUNDING_COPY.faucet, /no value/i);
-
-// The pre-payment gate asks the same rule, and it fails open on a read that did not come back: a failed read leaves the
-// balance undefined, which is the very value the gate sees, so that state must not stop a payment. A funded wallet whose
-// read failed still reaches the chain, the real judge, and fails there with FUNDING_ERROR if it really cannot pay.
-assert.ok(blocksPayment(funding(0n, false, fundingNeeded(100_000_000n, 1)))); // a read that came back short stops it
-assert.ok(!blocksPayment(funding(undefined, true, fundingNeeded(100_000_000n, 1)))); // a read that failed must not
 
 // What that same state says is one rule too, so the checkout card and the wallet dialog card cannot drift apart: neither
 // may claim a wallet that could not be read needs SOL.
