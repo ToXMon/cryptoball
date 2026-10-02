@@ -45,6 +45,10 @@ anchor build && pnpm install && pnpm test   # LiteSVM suite (needs target/deploy
 cd app && pnpm install && pnpm dev   # also: pnpm test (pure-logic check), pnpm build
 ```
 
+## Site (tape.site)
+
+Live build: <https://6ssmjmenn4d22yvgirrbdpc3h4u4pmkggp4uxpj3h52cnlnu2bdq.tape.site/> - same tape (label and host never change, so existing passkeys keep working). Redeploy with `tape deploy app/dist/index.html` against that tape's keypair; never `tape create`.
+
 ## Receipts (devnet)
 
 Cluster: devnet. Never mainnet. Explorer links are `https://explorer.solana.com/<what>/<id>?cluster=devnet`.
@@ -58,6 +62,7 @@ Toolchain for the deployed build: anchor-cli 0.32.1, solana-cli 4.2.2, cargo-bui
 | On-chain IDL account | [`BgERvSGr6d4jDr53jaKF8eXqimgdFwVSTMc4ekR4o7c`](https://explorer.solana.com/address/BgERvSGr6d4jDr53jaKF8eXqimgdFwVSTMc4ekR4o7c?cluster=devnet) |
 | Upgrade authority / treasury | [`9ACfknztv9UqJLLccZnBgjxFNbkNZERMwJbikj4dait7`](https://explorer.solana.com/address/9ACfknztv9UqJLLccZnBgjxFNbkNZERMwJbikj4dait7?cluster=devnet) (devnet placeholder wallet; `Config.fee_bps` = 1000) |
 | initialize tx | [`5o8E3nEZoPEGsBgevLfQp3QaeJ9eGvWGJxC2Ex5DPz4ouzoi5SUD2cLj3z7Z5okyAm5d5VtRxRdWvC8ds8vFzAAD`](https://explorer.solana.com/tx/5o8E3nEZoPEGsBgevLfQp3QaeJ9eGvWGJxC2Ex5DPz4ouzoi5SUD2cLj3z7Z5okyAm5d5VtRxRdWvC8ds8vFzAAD?cluster=devnet) (`Config` PDA `ECehTFBNuFQZrfHTWMcUWiMCbwF6KvHbXCxzMa6JPFwf`) |
+| Site redeploy (merged main, live program + passkey wallet) | 2026-10-02T21:14Z via `tape deploy app/dist/index.html` on tape `HTzCcSXy5sWncaPuVbySqMAG4FCs7EkttpGRLR1urycJ` (id 816, epoch 245, expires ~2026-10-13). Served `assets/index-CXWQxE6U.js` carries `GtdcPM3...`; `_site.json` ships with the devnet RPC origins; verified in-browser: page loads with no console errors (only a favicon 404), campaign 1 renders 0.09 SOL / 5 of 69 from devnet, the wallet dialog offers the passkey wallet alongside installed ones, and `https://api.devnet.solana.com` answers from the page origin. A real passkey ceremony was not run in headless Chrome. `--prune` could not delete the stale old chunk (tape rejected the delete); the orphan is unreferenced. |
 
 ### Campaign 1 (open, for players)
 
