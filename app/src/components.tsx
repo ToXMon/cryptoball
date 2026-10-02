@@ -1,6 +1,6 @@
 import { Component, Suspense, lazy, useEffect, useRef, useState, type ComponentType, type LazyExoticComponent, type ReactNode } from "react";
-import { pad, parts, useNow, useReducedMotion } from "./lib";
-import type { Ticket } from "./program";
+import { pad, parts, useNow, useReducedMotion, FUNDING_COPY, sol } from "./lib";
+import { FAUCET_URL, type Ticket } from "./program";
 
 export function Ball({ n, bonus, delay = 0, drop }: { n: number; bonus?: boolean; delay?: number; drop?: boolean }) {
   return (
@@ -90,6 +90,31 @@ export function Stage<P extends object>({ flat, scene, sceneProps, className = "
 }
 
 export const lazyScene = <P,>(load: () => Promise<{ default: ComponentType<P> }>) => lazy(load);
+
+/**
+ * Funding helper for a wallet that cannot cover a ticket: the address, a copy button and a link out to the
+ * official Solana devnet faucet. No faucet of our own (R-82 devnet-only); the copy says plainly it is free play money.
+ */
+export function Faucet({ address, needed, balance }: { address: string; needed?: bigint; balance?: bigint }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    await navigator.clipboard.writeText(address);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+  return (
+    <section className="cb-card cb-funding" aria-labelledby="fund-h">
+      <h2 id="fund-h">{FUNDING_COPY.heading}</h2>
+      <p>{balance != null && needed != null && balance < needed ? FUNDING_COPY.short(balance, needed) : balance != null ? FUNDING_COPY.enough(balance) : FUNDING_COPY.paste}</p>
+      <p className="cb-num cb-addr">{address}</p>
+      <p className="cb-row">
+        <button type="button" className="cb-btn cb-btn--ghost" onClick={() => void copy()}>{copied ? "Address copied" : "Copy address"}</button>
+        <a className="cb-btn cb-btn--primary" href={FAUCET_URL} target="_blank" rel="noreferrer">Open Solana devnet faucet</a>
+      </p>
+      <p className="cb-fine" aria-live="polite">{copied ? "Address copied. Paste it into the faucet." : FUNDING_COPY.faucet}</p>
+    </section>
+  );
+}
 
 export function TicketFace({ t }: { t: Pick<Ticket, "numbers" | "bonus" | "index" | "campaign"> }) {
   return (

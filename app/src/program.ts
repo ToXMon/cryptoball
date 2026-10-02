@@ -40,6 +40,21 @@ export interface WalletSigner {
 // design - this is a public static site, so the token is a public value; watch the plan's quota.
 export const DEVNET_RPC = "https://hardworking-broken-field.solana-devnet.quiknode.pro/ec3c0ae727818aaaead289ef2e844d4df1411e75/";
 export const PROGRAM_ID = new PublicKey("GtdcPM3LTX8G8pB1bVW1jWfuxTj3kZmD3axt4Q7whBpC");
+
+/** Official Solana devnet faucet. We run no faucet of our own: that is real infrastructure with abuse and rate-limit liability. */
+export const FAUCET_URL = "https://faucet.solana.com";
+/** Network fee headroom on top of the ticket price, so one checkout never lands on zero. */
+export const FEE_MARGIN_LAMPORTS = 10_000_000n; // 0.01 SOL
+
+/** What a checkout actually needs: ticket price(s) plus the fee margin. */
+export const fundingNeeded = (priceLamports: bigint, count = 1) => priceLamports * BigInt(count) + FEE_MARGIN_LAMPORTS;
+
+/** Raw RPC failures that really mean "this wallet has no money" (an unfunded devnet wallet). */
+export const isFundingError = (e: unknown) =>
+  /prior credit|insufficient|attempt to debit/i.test(e instanceof Error ? e.message : String(e));
+
+/** The one sentence an unfunded wallet gets instead of raw RPC simulation text. */
+export const FUNDING_ERROR = "This wallet does not have enough devnet SOL yet. Get free devnet SOL from the faucet, then try again.";
 const CORE_ID = new PublicKey("CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d");
 const CAMPAIGN_IDS = [1];
 const connection = new Connection(DEVNET_RPC, "confirmed");
@@ -155,6 +170,8 @@ export class ProgramError extends Error {
 
 export function describeError(e: unknown): string {
   if (e instanceof ProgramError) return e.message;
+  // An unfunded wallet must never reach the player as raw RPC text.
+  if (isFundingError(e)) return FUNDING_ERROR;
   const msg = e instanceof Error ? e.message : String(e);
   const code = msg.match(/custom program error: 0x([0-9a-f]+)/i)?.[1];
   const key = code && (Object.keys(ERROR_COPY)[parseInt(code, 16) - 6000] as CryptoballError | undefined);
@@ -162,6 +179,9 @@ export function describeError(e: unknown): string {
   if (/reject|denied|cancel/i.test(msg)) return "The wallet request was cancelled.";
   return msg || "Something went wrong. Check your wallet and tickets before trying again.";
 }
+
+/** Devnet balance in lamports. */
+export const getBalance = async (address: string) => BigInt(await connection.getBalance(new PublicKey(address), "confirmed"));
 
 export async function fetchCampaigns(): Promise<Campaign[]> {
   return (await Promise.all(CAMPAIGN_IDS.map(fetchCampaign))).filter((c) => c.state === "Open" || c.ticketCount > 0);

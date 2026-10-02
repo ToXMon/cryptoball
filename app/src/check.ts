@@ -1,7 +1,7 @@
 // Smallest runnable check for the pure logic: `pnpm test`.
 import assert from "node:assert/strict";
-import { quickPick, parts } from "./lib.ts";
-import { payout, ERROR_COPY, buyTicket, ProgramError, PROGRAM_ID, DEVNET_RPC } from "./program.ts";
+import { quickPick, parts, FUNDING_COPY } from "./lib.ts";
+import { payout, ERROR_COPY, buyTicket, ProgramError, PROGRAM_ID, describeError, fundingNeeded, isFundingError, FAUCET_URL, FEE_MARGIN_LAMPORTS, FUNDING_ERROR, DEVNET_RPC } from "./program.ts";
 import { readFileSync } from "node:fs";
 import { accountFromPrfOutput } from "./passkeyWallet.ts";
 
@@ -17,6 +17,23 @@ assert.deepEqual(parts(90061), { d: 1, h: 1, m: 1, s: 1 });
 assert.equal(Object.keys(ERROR_COPY).length, 19); // keep in step with errors.rs
 assert.equal(PROGRAM_ID.toBase58(), "GtdcPM3LTX8G8pB1bVW1jWfuxTj3kZmD3axt4Q7whBpC"); // devnet program, README receipts
 await assert.rejects(buyTicket("w", 1, [5, 5, 6, 7, 8], 1), (e) => e instanceof ProgramError && e.code === "InvalidNumbers");
+
+// Funding helper: ticket price plus a fee margin, and the unfunded-wallet errors that must never surface raw.
+assert.equal(fundingNeeded(100_000_000n), 110_000_000n); // 0.1 SOL ticket + 0.01 SOL fee margin
+assert.equal(fundingNeeded(100_000_000n, 3), 310_000_000n);
+assert.equal(FEE_MARGIN_LAMPORTS, 10_000_000n);
+assert.equal(FAUCET_URL, "https://faucet.solana.com");
+assert.ok(!isFundingError(new Error("Sales for this draw have closed.")));
+assert.ok(isFundingError(new Error("Transaction simulation failed: Attempt to debit an account but found no record of a prior credit.")));
+assert.ok(isFundingError(new Error("insufficient funds for fee")));
+assert.equal(describeError(new Error("Attempt to debit an account but found no record of a prior credit.")), FUNDING_ERROR);
+assert.ok(!/prior credit/i.test(describeError(new Error("Attempt to debit an account but found no record of a prior credit."))));
+assert.match(FUNDING_COPY.short(0n, 110_000_000n), /0 SOL/);
+assert.match(FUNDING_COPY.short(0n, 110_000_000n), /0\.11 SOL/);
+assert.ok(/free devnet SOL/i.test(FUNDING_ERROR));
+assert.match(FUNDING_COPY.paste, /free devnet test SOL/i);
+assert.match(FUNDING_COPY.faucet, /free devnet test SOL/i);
+assert.match(FUNDING_COPY.faucet, /no value/i);
 
 // Passkey derivation known-answer (research report 1.3): a fixed PRF output must keep giving this address,
 // or a silent dependency bump moved the keys.

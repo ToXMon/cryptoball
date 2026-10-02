@@ -1,7 +1,9 @@
 import { createContext, useContext, useRef, useState, type ReactNode } from "react";
 import { ConnectionProvider, WalletProvider, useWallet } from "@solana/wallet-adapter-react";
 import { WalletReadyState } from "@solana/wallet-adapter-base";
-import { short } from "./lib";
+import { short, sol, useAsync } from "./lib";
+import { Faucet } from "./components";
+import { getBalance } from "./program";
 import { passkeyAddress, passkeyErrorText, registerPasskeyWallet, revealRecoveryPhrase } from "./passkeyWallet";
 import { DEVNET_RPC } from "./program";
 
@@ -39,6 +41,14 @@ export function WalletChip() {
   );
 }
 
+/** A fresh passkey wallet has 0 devnet SOL; the funding helper lives right here, next to the address. */
+function Balance({ address }: { address: string }) {
+  const { data } = useAsync(() => getBalance(address), [address]);
+  if (data == null) return null;
+  if (data > 0n) return <p className="cb-muted">Devnet balance: <span className="cb-num">{sol(data)}</span></p>;
+  return <Faucet address={address} />;
+}
+
 function WalletDialog({ dialogRef, error, clearError }: { dialogRef: React.RefObject<HTMLDialogElement | null>; error?: string; clearError: () => void }) {
   const { wallets, select, disconnect, publicKey } = useWallet();
   const [phrase, setPhrase] = useState<string>();
@@ -65,6 +75,7 @@ function WalletDialog({ dialogRef, error, clearError }: { dialogRef: React.RefOb
       {publicKey ? (
         <>
           <p className="cb-num cb-addr">{publicKey.toBase58()}</p>
+          <Balance address={publicKey.toBase58()} />
           {publicKey.toBase58() === passkeyAddress() && (
             <button type="button" className="cb-btn cb-btn--ghost" disabled={busy} onClick={() => void backup()}>{busy ? "Checking…" : "Show recovery phrase"}</button>
           )}
