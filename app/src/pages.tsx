@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { Balls, Countdown, Faucet, Stage, TicketFace, lazyScene } from "./components";
 import { dateTime, explorer, go, num, pad, quickPick, short, sol, useAsync, FUNDING_COPY } from "./lib";
-import { buyTicket, describeError, fetchCampaign, fetchCampaigns, fetchTicket, fetchTickets, fundingNeeded, getBalance, needsFunding, payout, refundTicket, type Campaign, type Ticket } from "./program";
-import { useWalletDialog } from "./Wallet";
+import { buyTicket, describeError, fetchCampaign, fetchCampaigns, fetchTicket, fetchTickets, funding, fundingNeeded, payout, refundTicket, type Campaign, type Ticket } from "./program";
+import { useBalance, useWalletDialog } from "./Wallet";
 
 // Code-split: three.js only loads when a stage scrolls into view on confirmation / results.
 const TicketScene = lazyScene(() => import("./three/TicketScene"));
@@ -157,36 +157,31 @@ export function Pick({ id }: { id: number }) {
 function Checkout({ c, cart, total, fee, onBought }: { c: Campaign; cart: Carton[]; total: bigint; fee: bigint; onBought: (n: number) => void }) {
   const { publicKey, sendTransaction } = useWallet();
   const openWallet = useWalletDialog();
-  const [busy, setBusy] = useState(false);
+  const [phase, setPhase] = useState<"idle" | "checking" | "paying">("idle");
   const [err, setErr] = useState<unknown>();
   const [progress, setProgress] = useState(0);
   const [done, setDone] = useState<Ticket[]>([]);
-  const [balance, setBalance] = useState<bigint>();
   const buyer = publicKey?.toBase58();
+  const { balance, unreadable, read } = useBalance(buyer);
   const wallet = { publicKey, sendTransaction };
   const needed = fundingNeeded(c.priceLamports, cart.length);
-  useEffect(() => {
-    let live = true;
-    if (!buyer) { setBalance(undefined); return; }
-    getBalance(buyer).then(
-      (lamports) => { if (live) setBalance(lamports); },
-      () => { if (live) setBalance(undefined); },
-    );
-    return () => { live = false; };
-  }, [buyer]);
+  const fund = funding(balance, unreadable, needed);
 
   // R-82: the app only ever talks to the devnet RPC (Wallets.tsx), so the cluster is fixed; the adapter has no cluster
   // readout, so the wallet-side check lives in the real program adapter when signing.
   async function pay() {
     if (!buyer) return openWallet();
-    setBusy(true); setErr(undefined); setDone([]); setProgress(0);
+    if (phase !== "idle") return;
+    // A brand new passkey wallet cannot pay even the fee. Re-read before the payment UI takes over: the last read may
+    // predate the funding the user just did in the faucet's tab, and a balance that cannot cover the order must ask
+    // the wallet for nothing and leave the record of already bought tickets alone.
+    setPhase("checking");
+    const have = await read();
+    if (have == null || funding(have, false, needed).kind === "short") { setPhase("idle"); return; }
+    setErr(undefined); setDone([]); setProgress(0);
+    setPhase("paying");
     const bought: Ticket[] = [];
     try {
-      // A brand new passkey wallet cannot pay even the fee: re-read the balance, since the last read may predate the
-      // funding the user just did in the faucet's tab, and show the funding state instead of a failed transaction.
-      const have = await getBalance(buyer);
-      setBalance(have);
-      if (needsFunding(have, needed)) return;
       // One buy_ticket transaction per carton (design.md section 12, risk 2).
       for (const k of cart) { bought.push(await buyTicket(buyer, c.id, k.numbers, k.bonus!, wallet)); setProgress(bought.length); }
       sessionStorage.setItem("cb-last", JSON.stringify(bought));
@@ -194,7 +189,7 @@ function Checkout({ c, cart, total, fee, onBought }: { c: Campaign; cart: Carton
     } catch (e) {
       setErr(e);
       if (bought.length) { sessionStorage.setItem("cb-last", JSON.stringify(bought)); setDone(bought); onBought(bought.length); }
-    } finally { setBusy(false); }
+    } finally { setPhase("idle"); }
   }
 
   return (
@@ -206,12 +201,20 @@ function Checkout({ c, cart, total, fee, onBought }: { c: Campaign; cart: Carton
       </dl>
       <p className="cb-warn">Devnet play money. No real funds.</p>
       {done.length > 0 && <p role="status">{done.length} ticket{done.length > 1 ? "s were" : " was"} bought before the error and removed from your cart. <a className="cb-link" href={`#/ticket/${c.id}/${done[0].index}`}>View ticket</a></p>}
-      <button type="button" className="cb-btn cb-btn--primary cb-btn--block" disabled={busy || (!!buyer && cart.length === 0)} onClick={pay}>
-        {busy ? `Confirming ${progress + 1} of ${cart.length}…` : buyer ? `Pay ${sol(total)}` : "Connect wallet to pay"}
+      <button type="button" className="cb-btn cb-btn--primary cb-btn--block" disabled={phase !== "idle" || (!!buyer && cart.length === 0)} onClick={pay}>
+        {phase === "paying" ? `Confirming ${progress + 1} of ${cart.length}…`
+          : phase === "checking" ? "Checking balance…"
+          : buyer ? `Pay ${sol(total)}` : "Connect wallet to pay"}
       </button>
       {err != null && <Err e={err} />}
-      {buyer != null && needsFunding(balance, needed) && <Faucet address={buyer} note={FUNDING_COPY.short(balance, needed)} />}
-      {busy && <p className="cb-muted" aria-live="polite">Approve each ticket in your wallet.</p>}
+      {buyer != null && fund.kind !== "ok" && (
+        <Faucet
+          address={buyer}
+          note={fund.kind === "short" ? FUNDING_COPY.short(fund.balance, fund.needed) : FUNDING_COPY.unread}
+          retry={fund.kind === "unreadable" ? read : undefined}
+        />
+      )}
+      {phase === "paying" && <p className="cb-muted" aria-live="polite">Approve each ticket in your wallet.</p>}
     </div>
   );
 }

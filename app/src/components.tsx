@@ -96,8 +96,9 @@ const COPIED = "Address copied. Paste it into the faucet.";
 /**
  * Funding helper for a wallet that cannot cover a ticket: the address, a copy button and a link out to the
  * official Solana devnet faucet. No faucet of our own (R-82 devnet-only); the copy says plainly it is free play money.
+ * `retry` re-reads the balance, and is there because a failed read must not hide the helper.
  */
-export function Faucet({ address, note }: { address: string; note: string }) {
+export function Faucet({ address, note, retry }: { address: string; note: string; retry?: () => void }) {
   const headingId = useId();
   const [status, setStatus] = useState<string>();
   const copy = async () => {
@@ -116,6 +117,7 @@ export function Faucet({ address, note }: { address: string; note: string }) {
       <p className="cb-num cb-addr">{address}</p>
       <p className="cb-row">
         <button type="button" className="cb-btn cb-btn--ghost" onClick={() => void copy()}>{status === COPIED ? "Address copied" : "Copy address"}</button>
+        {retry && <button type="button" className="cb-btn cb-btn--ghost" onClick={retry}>{FUNDING_COPY.recheck}</button>}
         <a className="cb-btn cb-btn--primary" href={FAUCET_URL} target="_blank" rel="noreferrer">Open Solana devnet faucet</a>
       </p>
       <p className="cb-fine" aria-live="polite">{status ?? FUNDING_COPY.faucet}</p>

@@ -1,7 +1,7 @@
-import { createContext, useContext, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { ConnectionProvider, WalletProvider, useWallet } from "@solana/wallet-adapter-react";
 import { WalletReadyState } from "@solana/wallet-adapter-base";
-import { short, sol, useAsync, FUNDING_COPY } from "./lib";
+import { short, sol, FUNDING_COPY } from "./lib";
 import { Faucet } from "./components";
 import { getBalance } from "./program";
 import { passkeyAddress, passkeyErrorText, registerPasskeyWallet, revealRecoveryPhrase } from "./passkeyWallet";
@@ -43,12 +43,33 @@ export function WalletChip() {
   );
 }
 
+/**
+ * The one devnet balance read behind every funding surface: the last value, whether that read failed (a flaky RPC is
+ * not the same as a zero balance) and `read` to re-read it. Callers decide what to say from those three.
+ */
+export function useBalance(address?: string) {
+  const [st, setSt] = useState<{ balance?: bigint; unreadable: boolean }>({ unreadable: false });
+  const read = useCallback(async (): Promise<bigint | undefined> => {
+    if (!address) { setSt({ unreadable: false }); return undefined; }
+    try {
+      const balance = await getBalance(address);
+      setSt({ balance, unreadable: false });
+      return balance;
+    } catch {
+      setSt({ unreadable: true });
+      return undefined;
+    }
+  }, [address]);
+  useEffect(() => { void read(); }, [read]);
+  return { ...st, read };
+}
+
 /** A fresh passkey wallet has 0 devnet SOL; the funding helper lives right here, next to the address. */
 function Balance({ address }: { address: string }) {
-  const { data } = useAsync(() => getBalance(address), [address]);
-  if (data == null) return null;
-  if (data > 0n) return <p className="cb-muted">Devnet balance: <span className="cb-num">{sol(data)}</span></p>;
-  return <Faucet address={address} note={FUNDING_COPY.paste} />;
+  const { balance, unreadable, read } = useBalance(address);
+  if (unreadable || balance === 0n) return <Faucet address={address} note={FUNDING_COPY.paste} retry={unreadable ? read : undefined} />;
+  if (balance == null) return null;
+  return <p className="cb-muted">Devnet balance: <span className="cb-num">{sol(balance)}</span></p>;
 }
 
 function WalletDialog({ dialogRef, error, clearError, opens }: { dialogRef: React.RefObject<HTMLDialogElement | null>; error?: string; clearError: () => void; opens: number }) {

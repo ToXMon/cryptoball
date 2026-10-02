@@ -43,17 +43,33 @@ export const PROGRAM_ID = new PublicKey("GtdcPM3LTX8G8pB1bVW1jWfuxTj3kZmD3axt4Q7
 
 /** Official Solana devnet faucet. We run no faucet of our own: that is real infrastructure with abuse and rate-limit liability. */
 export const FAUCET_URL = "https://faucet.solana.com";
-/** Network fee headroom on top of the ticket price, so one checkout never lands on zero. */
-export const FEE_MARGIN_LAMPORTS = 10_000_000n; // 0.01 SOL
+/**
+ * What one carton costs on top of its price: the rent-exempt minimum of the ticket account and of the Core asset it
+ * mints, plus the transaction fee, since a checkout sends one transaction per carton. Rounded up (rent is about
+ * 0.0037 SOL of that) so the stated need covers a cart of any size and never lands on zero.
+ */
+export const CARTON_COST_LAMPORTS = 4_000_000n; // 0.004 SOL
 
-/** What a checkout actually needs: ticket price(s) plus the fee margin. */
-export const fundingNeeded = (priceLamports: bigint, count = 1) => priceLamports * BigInt(count) + FEE_MARGIN_LAMPORTS;
+/** What a checkout actually needs: the ticket price(s) plus that per-carton cost. An empty cart needs nothing. */
+export const fundingNeeded = (priceLamports: bigint, count = 1) => {
+  const cartons = BigInt(Math.max(0, count));
+  return (priceLamports + CARTON_COST_LAMPORTS) * cartons;
+};
+
+/** What the funding helper says about a wallet, from its latest balance read. */
+export type Funding = { kind: "ok" } | { kind: "unreadable" } | { kind: "short"; balance: bigint; needed: bigint };
 
 /**
- * Whether a balance read leaves a checkout short. A pure function of the current read and the current cart total, so
- * shrinking the cart clears the funding prompt and growing it raises one again; an unknown balance claims nothing.
+ * The funding state of a checkout, as a pure function of the latest read and the current cart total: shrinking the cart
+ * clears the funding prompt and growing it raises one again, and nothing latches. A read that failed is its own state,
+ * so a flaky RPC neither claims the wallet is short nor hides the helper; a balance not read yet claims nothing.
  */
-export const needsFunding = (balance: bigint | undefined, needed: bigint): balance is bigint => balance != null && balance < needed;
+export const funding = (balance: bigint | undefined, unreadable: boolean, needed: bigint): Funding => {
+  if (needed <= 0n) return { kind: "ok" }; // nothing selected, so there is nothing to fund and nothing to ask for
+  if (unreadable) return { kind: "unreadable" };
+  if (balance == null) return { kind: "ok" };
+  return balance < needed ? { kind: "short", balance, needed } : { kind: "ok" };
+};
 
 /** Raw RPC failures that really mean "this wallet has no money" (an unfunded devnet wallet). */
 export const isFundingError = (e: unknown) =>

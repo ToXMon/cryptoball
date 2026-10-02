@@ -1,7 +1,8 @@
 // Smallest runnable check for the pure logic: `pnpm test`.
 import assert from "node:assert/strict";
 import { quickPick, parts, FUNDING_COPY, sol } from "./lib.ts";
-import { payout, ERROR_COPY, buyTicket, ProgramError, PROGRAM_ID, describeError, fundingNeeded, isFundingError, FAUCET_URL, FEE_MARGIN_LAMPORTS, FUNDING_ERROR, DEVNET_RPC, needsFunding } from "./program.ts";
+import {  } from "./lib.ts";
+import { payout, ERROR_COPY, buyTicket, ProgramError, PROGRAM_ID, describeError, fundingNeeded, isFundingError, FAUCET_URL, FEE_MARGIN_LAMPORTS, FUNDING_ERROR, DEVNET_RPC, needsFunding, funding, CARTON_COST_LAMPORTS } from "./program.ts";
 import { readFileSync } from "node:fs";
 import { accountFromPrfOutput } from "./passkeyWallet.ts";
 
@@ -18,27 +19,40 @@ assert.equal(Object.keys(ERROR_COPY).length, 19); // keep in step with errors.rs
 assert.equal(PROGRAM_ID.toBase58(), "GtdcPM3LTX8G8pB1bVW1jWfuxTj3kZmD3axt4Q7whBpC"); // devnet program, README receipts
 await assert.rejects(buyTicket("w", 1, [5, 5, 6, 7, 8], 1), (e) => e instanceof ProgramError && e.code === "InvalidNumbers");
 
-// Funding helper: ticket price plus a fee margin, and the unfunded-wallet errors that must never surface raw.
-assert.equal(fundingNeeded(100_000_000n), 110_000_000n); // 0.1 SOL ticket + 0.01 SOL fee margin
-assert.equal(fundingNeeded(100_000_000n, 3), 310_000_000n);
-assert.equal(FEE_MARGIN_LAMPORTS, 10_000_000n);
+// Funding helper: what a checkout needs must cover what it really costs, at any cart size. Devnet rent-exempt minimum
+// is 3480 lamports per byte-year over two years on top of the 128-byte account header.
+const rent = (space: number) => 3_480n * 2n * BigInt(128 + space);
+const cartonCost = rent(8 + 108) + rent(165) + 10_000n; // ticket account, Core asset account, two signatures per tx
+assert.equal(fundingNeeded(100_000_000n), 104_000_000n); // 0.1 SOL ticket + 0.004 SOL of rent and fee
+assert.equal(CARTON_COST_LAMPORTS, 4_000_000n);
+for (let count = 1; count <= 5; count++) {
+  assert.ok(fundingNeeded(100_000_000n, count) >= 100_000_000n * BigInt(count) + cartonCost, `cart of ${count}`);
+}
+// Nothing selected is nothing to fund, so an empty cart can never raise a "needs 0.004 SOL" prompt.
+assert.equal(fundingNeeded(100_000_000n, 0), 0n);
+assert.equal(funding(0n, false, fundingNeeded(100_000_000n, 0)).kind, "ok");
+assert.equal(funding(undefined, true, fundingNeeded(100_000_000n, 0)).kind, "ok");
 assert.equal(FAUCET_URL, "https://faucet.solana.com");
 assert.ok(!isFundingError(new Error("Sales for this draw have closed.")));
 assert.ok(isFundingError(new Error("Transaction simulation failed: Attempt to debit an account but found no record of a prior credit.")));
 assert.ok(isFundingError(new Error("insufficient funds for fee")));
 // The funding state is decided by the live read and the live cart total, so one balance flips both ways as the cart
 // changes and nothing latches: a wallet that can cover the order never keeps seeing "Get devnet SOL".
-const funded = 110_000_000n; // exactly one ticket plus the fee margin
-assert.equal(needsFunding(0n, fundingNeeded(100_000_000n, 2)), true);
-assert.equal(needsFunding(funded, fundingNeeded(100_000_000n, 2)), true); // cart grew past what the wallet holds
-assert.equal(needsFunding(funded, fundingNeeded(100_000_000n, 1)), false); // same balance, cart shrank back
-assert.equal(needsFunding(250_000_000n, fundingNeeded(100_000_000n, 2)), false);
-assert.equal(needsFunding(undefined, fundingNeeded(100_000_000n, 1)), false); // no read yet: no claim about the wallet
-assert.equal(FUNDING_COPY.short(funded, fundingNeeded(100_000_000n, 2)), `This wallet has ${sol(funded)}. One checkout needs ${sol(210_000_000n)}: the ticket plus a small fee margin.`);
+const funded = 110_000_000n; // one ticket, with change over
+const short = fundingNeeded(100_000_000n, 2);
+assert.deepEqual(funding(0n, false, short), { kind: "short", balance: 0n, needed: short });
+assert.equal(funding(funded, false, short).kind, "short"); // cart grew past what the wallet holds
+assert.equal(funding(funded, false, fundingNeeded(100_000_000n, 1)).kind, "ok"); // same balance, cart shrank back
+assert.equal(funding(250_000_000n, false, short).kind, "ok");
+assert.equal(funding(undefined, false, fundingNeeded(100_000_000n, 1)).kind, "ok"); // no read yet: no claim about the wallet
+// A failed read is its own state: the helper still shows, with a way to read again, instead of claiming nothing.
+assert.equal(funding(undefined, true, fundingNeeded(100_000_000n, 1)).kind, "unreadable");
+assert.match(FUNDING_COPY.unread, /balance could not be read/i);
+assert.equal(FUNDING_COPY.short(funded, short), `This wallet has ${sol(funded)}. One checkout needs ${sol(short)}: the ticket plus a small fee margin.`);
 assert.equal(describeError(new Error("Attempt to debit an account but found no record of a prior credit.")), FUNDING_ERROR);
 assert.ok(!/prior credit/i.test(describeError(new Error("Attempt to debit an account but found no record of a prior credit."))));
-assert.match(FUNDING_COPY.short(0n, 110_000_000n), /0 SOL/);
-assert.match(FUNDING_COPY.short(0n, 110_000_000n), /0\.11 SOL/);
+assert.match(FUNDING_COPY.short(0n, fundingNeeded(100_000_000n, 1)), /0 SOL/);
+assert.match(FUNDING_COPY.short(0n, fundingNeeded(100_000_000n, 1)), /0.104 SOL/);
 assert.ok(/free devnet SOL/i.test(FUNDING_ERROR));
 assert.match(FUNDING_COPY.paste, /free devnet test SOL/i);
 assert.match(FUNDING_COPY.faucet, /free devnet test SOL/i);
