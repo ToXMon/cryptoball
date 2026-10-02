@@ -1,7 +1,7 @@
 // Smallest runnable check for the pure logic: `pnpm test`.
 import assert from "node:assert/strict";
 import { quickPick, parts, FUNDING_COPY, sol, fundingCopy } from "./lib.ts";
-import { payout, ERROR_COPY, buyTicket, ProgramError, PROGRAM_ID, describeError, fundingNeeded, isFundingError, FAUCET_URL, FEE_MARGIN_LAMPORTS, FUNDING_ERROR, DEVNET_RPC, needsFunding, funding, CARTON_COST_LAMPORTS, blocksPayment } from "./program.ts";
+import { payout, ERROR_COPY, buyTicket, ProgramError, PROGRAM_ID, describeError, fundingNeeded, isFundingError, FAUCET_URL, FEE_MARGIN_LAMPORTS, FUNDING_ERROR, DEVNET_RPC, needsFunding, funding, CARTON_COST_LAMPORTS, blocksPayment, payGate } from "./program.ts";
 import { readFileSync } from "node:fs";
 import { accountFromPrfOutput } from "./passkeyWallet.ts";
 
@@ -49,6 +49,26 @@ assert.equal(funding(undefined, false, fundingNeeded(100_000_000n, 1)).kind, "ok
 for (let count = 1; count <= 5; count++) {
   assert.equal(funding(undefined, true, fundingNeeded(100_000_000n, count)).kind, "unreadable", `cart of ${count}`);
 }
+
+// The payment decision itself: `payGate` is the whole of what a checkout decides before it sends, so the state the card
+// shows cannot hold a payment back. Every funding state, at every cart size, with a wallet connected, reaches the chain -
+// including the wallet the card calls short and the one whose read failed - and only a missing wallet, a running payment
+// or an empty cart hold it.
+const buyer = "So11111111111111111111111111111111111111112";
+for (let count = 1; count <= 5; count++) {
+  const needed = fundingNeeded(100_000_000n, count);
+  for (const [name, fund] of [
+    ["short", funding(0n, false, needed)],
+    ["unreadable", funding(undefined, true, needed)],
+    ["not read yet", funding(undefined, false, needed)],
+    ["funded", funding(250_000_000n, false, needed)],
+  ] as const) {
+    assert.deepEqual(payGate({ buyer, busy: false, cartons: count, fund }), { kind: "pay", buyer }, `cart of ${count}, ${name}`);
+  }
+}
+assert.deepEqual(payGate({ buyer: undefined, busy: false, cartons: 1, fund: funding(undefined, true) }), { kind: "connect" }); // no wallet: open the dialog
+assert.deepEqual(payGate({ buyer, busy: true, cartons: 1, fund: funding(undefined, true) }), { kind: "wait" }); // a payment is already running
+assert.deepEqual(payGate({ buyer, busy: false, cartons: 0, fund: funding(undefined, true) }), { kind: "wait" }); // nothing selected to pay for
 assert.match(FUNDING_COPY.unread, /balance could not be read/i);
 assert.equal(FUNDING_COPY.short(funded, short), `This wallet has ${sol(funded)}. One checkout needs ${sol(short)}: the ticket plus a small fee margin.`);
 assert.equal(describeError(new Error("Attempt to debit an account but found no record of a prior credit.")), FUNDING_ERROR);

@@ -14,6 +14,19 @@ registerPasskeyWallet();
 const Ctx = createContext<() => void>(() => {});
 export const useWalletDialog = () => useContext(Ctx);
 
+/** One wallet balance, read once and shared. */
+export interface WalletBalance {
+  /** The connected wallet. `balance` and `unreadable` describe this address and no other. */
+  address?: string;
+  balance?: bigint;
+  unreadable: boolean;
+  /** A read is in flight: nothing has landed yet, so the surfaces must claim nothing and the re-check button waits. */
+  reading: boolean;
+  read: () => void;
+}
+const BalanceCtx = createContext<WalletBalance>({ unreadable: false, reading: false, read: () => {} });
+export const useWalletBalance = () => useContext(BalanceCtx);
+
 export function Wallets({ children }: { children: ReactNode }) {
   const ref = useRef<HTMLDialogElement>(null);
   const [err, setErr] = useState<string>();
@@ -21,10 +34,12 @@ export function Wallets({ children }: { children: ReactNode }) {
   return (
     <ConnectionProvider endpoint={DEVNET_RPC}>
       <WalletProvider wallets={[]} autoConnect onError={(e) => setErr(passkeyErrorText(e))}>
-        <Ctx.Provider value={open}>
-          {children}
-          <WalletDialog dialogRef={ref} error={err} clearError={() => setErr(undefined)} />
-        </Ctx.Provider>
+        <ConnectedBalance>
+          <Ctx.Provider value={open}>
+            {children}
+            <WalletDialog dialogRef={ref} error={err} clearError={() => setErr(undefined)} />
+          </Ctx.Provider>
+        </ConnectedBalance>
       </WalletProvider>
     </ConnectionProvider>
   );
@@ -43,32 +58,49 @@ export function WalletChip() {
 }
 
 /**
- * The one devnet balance read behind every funding surface: the last value, the address it was read for, whether that
- * read failed (a flaky RPC is not the same as a zero balance) and `read` to re-read it. A reading belongs to its own
- * address, so a read still in flight for the wallet the user just switched away from never renders next to the new one:
- * until that read lands the surfaces claim nothing at all. `funding` turns those into the state the helper renders.
+ * The one devnet balance read behind every funding surface: it lives above them all, so the wallet dialog card and the
+ * checkout card read the same value of the same wallet instead of racing two `getBalance` calls that can disagree. The
+ * read is ordered by request, so the newest one wins however late an older one lands; a reading belongs to the address it
+ * was read for, so a read still in flight for the wallet the user just switched away from never renders next to the new
+ * one; `reading` says a read has not landed yet, and `read` starts another (a failed RPC is not the same as a zero
+ * balance, so the surfaces hold their claim back until a read comes back). `funding` turns this into what a card shows.
  */
-export function useBalance(address?: string) {
+export function useBalance(address?: string): WalletBalance {
   const [st, setSt] = useState<{ address: string; balance?: bigint; unreadable: boolean }>();
+  const [reading, setReading] = useState(false);
+  const newest = useRef(0);
   const read = useCallback(async (): Promise<void> => {
-    if (!address) { setSt(undefined); return; }
+    const mine = ++newest.current; // an older read that lands from here on is stale, whoever it was for
+    if (!address) { setSt(undefined); setReading(false); return; }
+    setReading(true);
     try {
-      setSt({ address, balance: await getBalance(address), unreadable: false });
+      const balance = await getBalance(address);
+      if (mine === newest.current) setSt({ address, balance, unreadable: false });
     } catch {
-      setSt({ address, unreadable: true });
+      if (mine === newest.current) setSt({ address, unreadable: true });
+    } finally {
+      if (mine === newest.current) setReading(false);
     }
   }, [address]);
   useEffect(() => { void read(); }, [read]);
-  const mine = st?.address === address ? st : undefined;
-  return { balance: mine?.balance, unreadable: mine?.unreadable ?? false, read };
+  const held = st?.address === address ? st : undefined;
+  return { address, balance: held?.balance, unreadable: held?.unreadable ?? false, reading, read };
+}
+
+/** Above both funding surfaces, so neither of them reads the balance itself. */
+function ConnectedBalance({ children }: { children: ReactNode }) {
+  const { publicKey } = useWallet();
+  const balance = useBalance(publicKey?.toBase58());
+  return <BalanceCtx.Provider value={balance}>{children}</BalanceCtx.Provider>;
 }
 
 /** A fresh passkey wallet has 0 devnet SOL; the funding helper lives right here, next to the address. */
-function Balance({ address }: { address: string }) {
-  const { balance, unreadable, read } = useBalance(address);
+function Balance() {
+  const { address, balance, unreadable, reading, read } = useWalletBalance();
+  if (!address) return null;
   const fund = funding(balance, unreadable);
   if (fund.kind === "ok") return balance == null ? null : <p className="cb-muted">Devnet balance: <span className="cb-num">{sol(balance)}</span></p>;
-  return <Faucet address={address} fund={fund} retry={read} />;
+  return <Faucet address={address} fund={fund} recheck={{ read, reading }} />;
 }
 
 function WalletDialog({ dialogRef, error, clearError }: { dialogRef: React.RefObject<HTMLDialogElement | null>; error?: string; clearError: () => void }) {
@@ -97,7 +129,7 @@ function WalletDialog({ dialogRef, error, clearError }: { dialogRef: React.RefOb
       {publicKey ? (
         <>
           <p className="cb-num cb-addr">{publicKey.toBase58()}</p>
-          <Balance address={publicKey.toBase58()} />
+          <Balance />
           {publicKey.toBase58() === passkeyAddress() && (
             <button type="button" className="cb-btn cb-btn--ghost" disabled={busy} onClick={() => void backup()}>{busy ? "Checking…" : "Show recovery phrase"}</button>
           )}

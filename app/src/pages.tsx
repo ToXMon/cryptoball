@@ -2,8 +2,8 @@ import { useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { Balls, Countdown, Faucet, Stage, TicketFace, lazyScene } from "./components";
 import { dateTime, explorer, go, num, pad, quickPick, short, sol, useAsync } from "./lib";
-import { buyTicket, describeError, fetchCampaign, fetchCampaigns, fetchTicket, fetchTickets, funding, fundingNeeded, payout, refundTicket, type Campaign, type Ticket } from "./program";
-import { useBalance, useWalletDialog } from "./Wallet";
+import { buyTicket, describeError, fetchCampaign, fetchCampaigns, fetchTicket, fetchTickets, funding, fundingNeeded, payGate, payout, refundTicket, type Campaign, type Ticket } from "./program";
+import { useWalletBalance, useWalletDialog } from "./Wallet";
 
 // Code-split: three.js only loads when a stage scrolls into view on confirmation / results.
 const TicketScene = lazyScene(() => import("./three/TicketScene"));
@@ -162,22 +162,23 @@ function Checkout({ c, cart, total, fee, onBought }: { c: Campaign; cart: Carton
   const [progress, setProgress] = useState(0);
   const [done, setDone] = useState<Ticket[]>([]);
   const buyer = publicKey?.toBase58();
-  const { balance, unreadable, read } = useBalance(buyer);
+  const { address, balance, unreadable, reading, read } = useWalletBalance();
   const wallet = { publicKey, sendTransaction };
-  const needed = fundingNeeded(c.priceLamports, cart.length);
-  const fund = funding(balance, unreadable, needed);
+  const fund = funding(balance, unreadable, fundingNeeded(c.priceLamports, cart.length));
+  const gate = payGate({ buyer, busy, cartons: cart.length, fund });
 
   // R-82: the app only ever talks to the devnet RPC (Wallets.tsx), so the cluster is fixed; the adapter has no cluster
   // readout, so the wallet-side check lives in the real program adapter when signing.
   async function pay() {
-    if (!buyer) return openWallet();
-    // Nothing is read before the payment: the card above already said whether the latest read could cover the order, and
-    // the chain is the real judge. A wallet that cannot pay fails here with the funding message and a way to the faucet.
+    if (gate.kind === "connect") return openWallet();
+    if (gate.kind === "wait") return;
+    // The gate is the whole decision, and the balance read is not part of it: this sends the order whatever the card
+    // above said, because the chain is the judge of whether a wallet can pay and answers FUNDING_ERROR if it cannot.
     setBusy(true); setErr(undefined); setDone([]); setProgress(0);
     const bought: Ticket[] = [];
     try {
       // One buy_ticket transaction per carton (design.md section 12, risk 2).
-      for (const k of cart) { bought.push(await buyTicket(buyer, c.id, k.numbers, k.bonus!, wallet)); setProgress(bought.length); }
+      for (const k of cart) { bought.push(await buyTicket(gate.buyer, c.id, k.numbers, k.bonus!, wallet)); setProgress(bought.length); }
       sessionStorage.setItem("cb-last", JSON.stringify(bought));
       go(`ticket/${c.id}/${bought[0].index}`);
     } catch (e) {
@@ -195,11 +196,11 @@ function Checkout({ c, cart, total, fee, onBought }: { c: Campaign; cart: Carton
       </dl>
       <p className="cb-warn">Devnet play money. No real funds.</p>
       {done.length > 0 && <p role="status">{done.length} ticket{done.length > 1 ? "s were" : " was"} bought before the error and removed from your cart. <a className="cb-link" href={`#/ticket/${c.id}/${done[0].index}`}>View ticket</a></p>}
-      <button type="button" className="cb-btn cb-btn--primary cb-btn--block" disabled={busy || (!!buyer && cart.length === 0)} onClick={pay}>
+      <button type="button" className="cb-btn cb-btn--primary cb-btn--block" disabled={gate.kind !== "pay"} onClick={pay}>
         {busy ? `Confirming ${progress + 1} of ${cart.length}…` : buyer ? `Pay ${sol(total)}` : "Connect wallet to pay"}
       </button>
       {err != null && <Err e={err} />}
-      {buyer != null && <Faucet address={buyer} fund={fund} retry={read} />}
+      {address != null && <Faucet address={address} fund={fund} recheck={{ read, reading }} />}
       {busy && <p className="cb-muted" aria-live="polite">Approve each ticket in your wallet.</p>}
     </div>
   );

@@ -97,17 +97,20 @@ const COPIED = "Address copied.";
  * Funding helper for a wallet that cannot cover a ticket: the address, a copy button and a link out to the
  * official Solana devnet faucet. No faucet of our own (R-82 devnet-only); the copy says plainly it is free play money.
  * What it says about the wallet comes from `fundingCopy`, so every surface renders the same state the same way, and
- * `retry` re-reads the balance, which is there because a failed read must not hide the helper.
+ * `recheck` re-reads the one shared balance read: it is there because a failed read must not hide the helper, and it
+ * waits for the read it started because only the newest read may speak for the wallet.
  */
-export function Faucet({ address, fund, retry }: { address: string; fund: Funding; retry?: () => void }) {
+export function Faucet({ address, fund, recheck }: { address: string; fund: Funding; recheck?: { read: () => void; reading: boolean } }) {
   const headingId = useId();
   const [status, setStatus] = useState<string>();
+  const copied = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const copy = fundingCopy(fund);
   const copyAddress = async () => {
+    clearTimeout(copied.current); // the older copy's timer must not take this one's status down with it
     try {
       await navigator.clipboard.writeText(address);
       setStatus(COPIED);
-      setTimeout(() => setStatus(undefined), 2000);
+      copied.current = setTimeout(() => setStatus(undefined), 2000);
     } catch {
       setStatus("Could not copy the address. Select it and copy it by hand.");
     }
@@ -120,7 +123,7 @@ export function Faucet({ address, fund, retry }: { address: string; fund: Fundin
       <p className="cb-num cb-addr">{address}</p>
       <p className="cb-row">
         <button type="button" className="cb-btn cb-btn--ghost" onClick={() => void copyAddress()}>{status === COPIED ? "Address copied" : "Copy address"}</button>
-        {retry && <button type="button" className="cb-btn cb-btn--ghost" onClick={retry}>{FUNDING_COPY.recheck}</button>}
+        {recheck && <button type="button" className="cb-btn cb-btn--ghost" disabled={recheck.reading} onClick={recheck.read}>{FUNDING_COPY.recheck}</button>}
         <a className="cb-btn cb-btn--primary" href={FAUCET_URL} target="_blank" rel="noreferrer">Open Solana devnet faucet</a>
       </p>
       <p className="cb-fine" aria-live="polite">{status ?? FUNDING_COPY.faucet}</p>
