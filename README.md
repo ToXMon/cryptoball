@@ -6,7 +6,8 @@ Raffle-style: players buy tickets with SOL (5 numbers from 1-69 plus a Cryptobal
 
 ## Status
 
-Phase 3 program build: all instructions implemented (`initialize`, `update_config`, `nominate_admin`, `accept_admin`, `create_campaign`, `buy_ticket`, `commit_draw`, `settle_draw`, `cancel_campaign`, `refund_ticket`), each with happy-path and negative tests on LiteSVM (`tests/0*.test.ts`) plus a lifecycle and conservation test. `settle_draw` also derives the 5-of-69 plus Cryptoball display numbers (`winner::winning_numbers`, unbiased rejection sampling, fails closed instead of falling back to modulo); `initialize` takes the treasury as an account; `close_campaign` is still not built (design.md section 5).
+Phases 1 to 2 (requirements, architecture, scaffold), the frontend phase and the Phase 3 program build. all instructions implemented (`initialize`, `update_config`, `nominate_admin`, `accept_admin`, `create_campaign`, `buy_ticket`, `commit_draw`, `settle_draw`, `cancel_campaign`, `refund_ticket`), each with happy-path and negative tests on LiteSVM (`tests/0*.test.ts`) plus a lifecycle and conservation test. `settle_draw` also derives the 5-of-69 plus Cryptoball display numbers (`winner::winning_numbers`, unbiased rejection sampling, fails closed instead of falling back to modulo); `initialize` takes the treasury as an account; `close_campaign` is still not built (design.md section 5).
+The web app still runs against a mock adapter (`app/src/program.ts`, in-memory campaigns, fake signatures) until the IDL is wired in. Build order is `docs/design.md` section 17.
 
 | Doc | What |
 |---|---|
@@ -17,9 +18,9 @@ Phase 3 program build: all instructions implemented (`initialize`, `update_confi
 ## Layout
 
 ```
-programs/cryptoball/   Anchor program (stubs, state, events, errors, constants, winner.rs)
+programs/cryptoball/   Anchor program (instructions, state, events, errors, constants, winner.rs)
 tests/                 ts-mocha + LiteSVM: harness.ts, one test file per instruction, lifecycle; fixtures/mpl_core.so = devnet Core binary
-app/                   React + Vite shell; src/tokens.css = Prime Time design tokens
+app/                   React + Vite player app (Prime Time design, 3D ticket, draw-night ball drop); src/tokens.css = design tokens; src/program.ts = mock program adapter
 docs/                  requirements, design, diagrams
 ```
 
@@ -40,7 +41,7 @@ Why these features: `docs/design.md` section 10.
 cargo test -p cryptoball          # pinned-id check
 cargo build-sbf --manifest-path programs/cryptoball/Cargo.toml
 anchor build && pnpm install && pnpm test   # LiteSVM suite (needs target/deploy/cryptoball.so)
-cd app && pnpm install && pnpm dev
+cd app && pnpm install && pnpm dev   # also: pnpm test (pure-logic check), pnpm build
 ```
 
 ## Receipts (devnet)

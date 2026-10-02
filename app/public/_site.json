@@ -1,0 +1,3 @@
+{
+  "connect_origins": ["https://api.devnet.solana.com", "wss://api.devnet.solana.com"]
+}
