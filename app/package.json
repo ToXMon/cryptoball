@@ -8,10 +8,17 @@
     "test": "node --experimental-strip-types src/check.ts"
   },
   "dependencies": {
+    "@category-labs/mera": "0.2.0",
+    "@noble/hashes": "^2.4.0",
     "@react-three/fiber": "^9.8.1",
+    "@scure/bip39": "^2.4.0",
     "@solana/wallet-adapter-base": "^0.9.28",
     "@solana/wallet-adapter-react": "^0.15.40",
+    "@solana/wallet-standard-features": "^1.5.0",
     "@solana/web3.js": "1.98.0",
+    "@wallet-standard/core": "^1.1.2",
+    "@wallet-standard/features": "^1.1.1",
+    "@wallet-standard/wallet": "^1.1.1",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "three": "^0.186.1"

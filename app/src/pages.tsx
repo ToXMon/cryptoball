@@ -155,13 +155,14 @@ export function Pick({ id }: { id: number }) {
 }
 
 function Checkout({ c, cart, total, fee, onBought }: { c: Campaign; cart: Carton[]; total: bigint; fee: bigint; onBought: (n: number) => void }) {
-  const { publicKey } = useWallet();
+  const { publicKey, sendTransaction } = useWallet();
   const openWallet = useWalletDialog();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<unknown>();
   const [progress, setProgress] = useState(0);
   const [done, setDone] = useState<Ticket[]>([]);
   const buyer = publicKey?.toBase58();
+  const wallet = { publicKey, sendTransaction };
 
   // R-82: the app only ever talks to the devnet RPC (Wallets.tsx), so the cluster is fixed; the adapter has no cluster
   // readout, so the wallet-side check lives in the real program adapter when signing.
@@ -171,7 +172,7 @@ function Checkout({ c, cart, total, fee, onBought }: { c: Campaign; cart: Carton
     const bought: Ticket[] = [];
     try {
       // One buy_ticket transaction per carton (design.md section 12, risk 2).
-      for (const k of cart) { bought.push(await buyTicket(buyer, c.id, k.numbers, k.bonus!)); setProgress(bought.length); }
+      for (const k of cart) { bought.push(await buyTicket(buyer, c.id, k.numbers, k.bonus!, wallet)); setProgress(bought.length); }
       sessionStorage.setItem("cb-last", JSON.stringify(bought));
       go(`ticket/${c.id}/${bought[0].index}`);
     } catch (e) {
@@ -285,7 +286,7 @@ export function Results({ id }: { id: number }) {
 }
 
 function CancelledRefund({ c }: { c: Campaign }) {
-  const { publicKey } = useWallet();
+  const { publicKey, sendTransaction } = useWallet();
   const [msg, setMsg] = useState<string>();
   const mine = useAsync(() => (publicKey ? fetchTickets(publicKey.toBase58()) : Promise.resolve([])), [publicKey]);
   const list = (mine.data ?? []).filter((t) => t.campaign === c.id && t.status === "Active");
@@ -295,7 +296,7 @@ function CancelledRefund({ c }: { c: Campaign }) {
       {list.map((t) => (
         <li key={t.index} className="cb-cartline">
           <span>Ticket #{t.index}</span>
-          <button type="button" className="cb-btn cb-btn--ghost" onClick={() => refundTicket(c.id, t.index).then(() => setMsg("Refunded."), (e) => setMsg(describeError(e)))}>Refund</button>
+          <button type="button" className="cb-btn cb-btn--ghost" onClick={() => refundTicket(c.id, t.index, { publicKey, sendTransaction }).then(() => setMsg("Refunded."), (e) => setMsg(describeError(e)))}>Refund</button>
         </li>
       ))}
       {msg && <li aria-live="polite">{msg}</li>}
