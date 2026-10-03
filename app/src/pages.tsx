@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { Balls, Countdown, Err, Faucet, Stage, TicketFace, lazyScene } from "./components";
-import { dateTime, explorer, go, num, pad, quickPick, short, sol, useAsync } from "./lib";
-import { buyTicket, fetchCampaign, fetchCampaigns, fetchTicket, fetchTickets, funding, fundingNeeded, payGate, payout, refundTicket, type Campaign, type Ticket } from "./program";
+import { Balls, Copyable, Countdown, Err, Faucet, Stage, TicketFace, lazyScene } from "./components";
+import { dateTime, explorer, finishedCopy, FINISHED_COPY, go, num, pad, quickPick, short, sol, useAsync } from "./lib";
+import { buyTicket, campaignAddress, discoverCampaigns, fetchCampaign, fetchSettleSignature, fetchTicket, fetchTickets, funding, fundingNeeded, iWon, outcome, payGate, payout, refundTicket, type Campaign, type Ticket } from "./program";
 import { useWalletBalance, useWalletDialog } from "./Wallet";
 
 // Code-split: three.js only loads when a stage scrolls into view on confirmation / results.
@@ -24,33 +24,45 @@ function Trust() {
 
 function CampaignCard({ c }: { c: Campaign }) {
   const open = c.state === "Open" && c.closeTs * 1000 > Date.now();
+  const { prize } = payout(c);
+  const state = outcome(c);
   return (
     <article className="cb-card">
       <p className="cb-eyebrow">Draw #{c.id}</p>
-      <p className="cb-prize">{sol(payout(c).prize)}</p>
+      <p className="cb-prize">{state === "cancelled" ? "No prize" : state === "settled" ? sol(c.prizeLamports ?? prize) : sol(prize)}</p>
       <p className="cb-muted">Entry {sol(c.priceLamports)} · 5 of 69 + Cryptoball · {num(c.ticketCount)} / {num(c.maxTickets)} sold</p>
-      {c.state === "Open" ? <Countdown to={c.closeTs} /> : <p className="cb-countdown cb-muted">{c.state === "Settled" ? "Drawn" : c.state}</p>}
+      {open ? <Countdown to={c.closeTs} /> : <p className="cb-countdown cb-muted">{state === "settled" ? "Drawn" : state === "cancelled" ? "Cancelled, everyone refunded" : state === "committed" ? "Committed, awaiting reveal" : "Closed"}</p>}
+      {!open && <p className="cb-muted cb-fine">{finishedCopy(state, c.winningIndex, true)}</p>}
       <p>
         {open
           ? <a className="cb-btn cb-btn--primary" href={`#/pick/${c.id}`}>Pick numbers</a>
-          : <a className="cb-btn cb-btn--ghost" href={`#/results/${c.id}`}>See results</a>}
+          : state === "open" ? <span className="cb-btn cb-btn--ghost" aria-disabled="true">Sales closed</span>
+            : <a className="cb-btn cb-btn--ghost" href={`#/results/${c.id}`}>See results</a>}
       </p>
     </article>
   );
 }
 
 export function Landing() {
-  const { data, error, loading } = useAsync(fetchCampaigns, []);
-  const open = data?.filter((c) => c.state === "Open" && c.closeTs * 1000 > Date.now()).sort((a, b) => a.closeTs - b.closeTs);
+  const { data, error, loading } = useAsync(discoverCampaigns, []);
+  const campaigns = data?.campaigns;
+  const live = (c: Campaign) => c.state === "Open" && c.closeTs * 1000 > Date.now();
+  const open = campaigns?.filter(live).sort((a, b) => a.closeTs - b.closeTs);
+  // Everything else - a closed draw waiting for its commit, and every finished draw - is listed too, so a friend who
+  // arrives after everything shut still sees what happened rather than an empty page.
+  const past = campaigns?.filter((c) => !live(c));
   const hero = open?.[0];
+  const last = past?.[0];
+  // Nothing open is not an empty page: the most recent finished draw is the answer, and it is one click away.
+  const headline = hero ? sol(payout(hero).prize) : last && outcome(last) === "settled" ? `${sol(last.prizeLamports ?? payout(last).prize)} won` : "Pick 5. Win it all.";
   return (
     <>
       <section className="cb-hero">
-        <p className="cb-eyebrow"><span className="cb-live" aria-hidden="true" /> Next draw</p>
-        <h1 className="cb-prize cb-prize--xl">{hero ? sol(payout(hero).prize) : "Pick 5. Win it all."}</h1>
+        <p className="cb-eyebrow"><span className="cb-live" aria-hidden="true" /> {hero ? "Next draw" : "Latest result"}</p>
+        <h1 className="cb-prize cb-prize--xl">{headline}</h1>
         <p className="cb-sub">Pick 5 numbers and a Cryptoball. One ticket wins. Paid automatically.</p>
-        {hero && <Countdown to={hero.closeTs} label="Sales close in" />}
-        <p><a className="cb-btn cb-btn--primary cb-btn--lg" href={hero ? `#/pick/${hero.id}` : "#/"}>Pick your numbers</a></p>
+        {hero ? <Countdown to={hero.closeTs} label="Sales close in" /> : <p className="cb-muted">{last ? finishedCopy(outcome(last), last.winningIndex, true) : "The next draw opens soon."}</p>}
+        <p><a className="cb-btn cb-btn--primary cb-btn--lg" href={hero ? `#/pick/${hero.id}` : last ? `#/results/${last.id}` : "#/"}>{hero ? "Pick your numbers" : last ? "See the result" : "Cryptoball"}</a></p>
         <Trust />
         <p className="cb-muted cb-fine">Prize shown is the current pool after the {hero ? hero.feeBps / 100 : 10}% fee. The numbers you pick are recorded on your ticket; the winner is one randomly drawn ticket.</p>
       </section>
@@ -58,8 +70,17 @@ export function Landing() {
         <h2 id="draws">Campaigns</h2>
         {loading && <Loading what="campaigns" />}
         {error != null && <Err e={error} />}
-        <div className="cb-grid">{data?.map((c) => <CampaignCard key={c.id} c={c} />)}</div>
+        {!!data?.truncated && <p className="cb-warn">Showing the {num(data.campaigns.length)} most recent of {num(data.found)} draws ever opened. Older ones are still on chain and still refundable.</p>}
+        <div className="cb-grid">{open?.map((c) => <CampaignCard key={c.id} c={c} />)}</div>
+        {!loading && !open?.length && <p className="cb-muted">No draw is open right now. Finished draws are below.</p>}
       </section>
+      {!!past?.length && (
+        <section aria-labelledby="past">
+          <h2 id="past">Closed draws</h2>
+          <p className="cb-muted">Every draw that is no longer selling: the numbers, the winner and the proof where there is one, and a refund where there is not.</p>
+          <div className="cb-grid">{past.map((c) => <CampaignCard key={c.id} c={c} />)}</div>
+        </section>
+      )}
       <Lookup />
     </>
   );
@@ -253,52 +274,122 @@ export function Confirmation({ id, index }: { id: number; index: number }) {
 
 // ---------- results ----------
 
+/**
+ * The proof of a finished draw, on the page that shows the result: the randomness account, the slot it was seeded from,
+ * the revealed value, and the settle transaction that turned one into the other. A player can click all of it and check
+ * it themselves, which is the whole promise of the product. The settle signature is a chain read that may come back
+ * empty (an account with a long history, or an RPC that lost it), and it never blocks the result: the draw's own
+ * Explorer history is the fallback, so the numbers above are never withheld for a missing link.
+ */
+function Proof({ c, settle }: { c: Campaign; settle?: string }) {
+  const headingId = useId();
+  return (
+    <section className="cb-card" aria-labelledby={headingId}>
+      <h2 id={headingId}>Proof this draw was fair</h2>
+      <dl className="cb-sum">
+        <dt>Randomness account</dt>
+        <dd>{c.randAccount ? <a className="cb-num" href={explorer("address", c.randAccount)} target="_blank" rel="noreferrer">{short(c.randAccount)}</a> : <span className="cb-muted">no randomness was committed for this draw</span>}</dd>
+        <dt>Seed slot</dt>
+        <dd className="cb-num">{c.seedSlot ? num(c.seedSlot) : <span className="cb-muted">none</span>}</dd>
+        <dt>Revealed value</dt>
+        <dd className="cb-num cb-addr">{c.randomness ?? "not revealed"}</dd>
+        <dt>Settle transaction</dt>
+        <dd>{settle
+          ? <a className="cb-num" href={explorer("tx", settle)} target="_blank" rel="noreferrer">{short(settle)}</a>
+          : <a className="cb-num" href={explorer("address", campaignAddress(c.id))} target="_blank" rel="noreferrer">all draw transactions</a>}</dd>
+        <dt>Draw account</dt>
+        <dd><a className="cb-num" href={explorer("address", campaignAddress(c.id))} target="_blank" rel="noreferrer">{short(campaignAddress(c.id))}</a></dd>
+      </dl>
+      <p className="cb-muted cb-fine">Randomness comes from Switchboard's TEE-based oracle and is checked by the program at settlement: the seed slot is fixed before sales of the result could be known, and the winning ticket is an index derived from the revealed value, not a match against the numbers on any ticket.</p>
+    </section>
+  );
+}
+
 export function Results({ id }: { id: number }) {
   const { data, error, loading } = useAsync(async () => {
     const c = await fetchCampaign(id);
-    const winner = c.winningIndex != null ? await fetchTicket(id, c.winningIndex) : undefined;
-    return { c, winner };
+    // One chain read for the winning ticket, one for the settle transaction. Neither is allowed to hide the result:
+    // a failed proof read leaves the numbers, the winner and the money on the page.
+    const won = outcome(c) === "settled" ? await fetchTicket(id, c.winningIndex!).catch(() => undefined) : undefined;
+    const settle = c.randAccount ? await fetchSettleSignature(c.randAccount).catch(() => undefined) : undefined;
+    return { c, won, settle };
   }, [id]);
   const [run, setRun] = useState(0);
   const { publicKey } = useWallet();
   if (loading && !data) return <Loading what="results" />;
   if (error != null || !data) return <Err e={error} />;
-  const { c, winner } = data;
+  const { c, won, settle } = data;
   const me = publicKey?.toBase58();
+  const state = outcome(c);
+  const { pool } = payout(c);
 
-  if (c.state !== "Settled" || !winner) {
+  if (state === "open") {
+    const late = c.closeTs * 1000 <= Date.now();
     return (
       <>
         <a className="cb-link" href="#/">← All draws</a>
         <h1>Draw #{c.id}</h1>
-        {c.state === "Open" && <Countdown to={c.closeTs} label="Sales close in" />}
-        <p className="cb-sub">{c.state === "Open" ? "The draw happens after sales close." : c.state === "DrawCommitted" ? "Draw night: waiting for the randomness reveal." : "This draw was cancelled."}</p>
-        {c.state === "Cancelled" && <CancelledRefund c={c} />}
+        {late ? <p className="cb-countdown cb-muted">Sales closed</p> : <Countdown to={c.closeTs} label="Sales close in" />}
+        <p className="cb-sub" role="status">{finishedCopy("open", undefined, late)}</p>
+        <dl className="cb-sum">
+          <dt>Tickets sold</dt><dd className="cb-num">{num(c.ticketCount)}</dd>
+          <dt>Pool</dt><dd className="cb-num">{sol(pool)}</dd>
+          <dt>Sales closed</dt><dd>{dateTime(c.closeTs)}</dd>
+        </dl>
+        {!late && <p><a className="cb-btn cb-btn--primary" href={`#/pick/${c.id}`}>Pick numbers</a></p>}
       </>
     );
   }
-  const { prize, fee } = payout(c);
+
+  if (state !== "settled") {
+    return (
+      <div data-theme="light" className="cb-programme">
+        <a className="cb-link" href="#/">← All draws</a>
+        <h1>Draw #{c.id}: {state === "cancelled" ? "cancelled, everyone refunded" : "committed, no winner yet"}</h1>
+        <p className="cb-sub" role="status">{state === "cancelled" ? FINISHED_COPY.cancelled : FINISHED_COPY.committed}</p>
+        <dl className="cb-sum">
+          <dt>Tickets sold</dt><dd className="cb-num">{num(c.ticketCount)}</dd>
+          <dt>Pool</dt><dd className="cb-num">{sol(pool)}</dd>
+          <dt>Sales closed</dt><dd>{dateTime(c.closeTs)}</dd>
+          <dt>Committed</dt><dd>{c.committedAt ? dateTime(c.committedAt) : "not committed"}</dd>
+        </dl>
+        {state === "cancelled" && <CancelledRefund c={c} />}
+        <Proof c={c} settle={settle} />
+      </div>
+    );
+  }
+
+  const { fee, prize } = payout(c);
+  const prizePaid = c.prizeLamports ?? prize;
+  const feeTaken = c.feeLamports ?? fee;
   return (
     <div data-theme="light" className="cb-programme">
       <a className="cb-link" href="#/">← All draws</a>
       <h1>Draw #{c.id} results</h1>
-      <Stage
-        className="cb-stage--balls"
-        scene={BallsScene}
-        sceneProps={{ numbers: winner.numbers, bonus: winner.bonus, runKey: run }}
-        flat={<Balls numbers={winner.numbers} bonus={winner.bonus} drop />}
-      />
+      <p className="cb-sub" role="status">{iWon(c, me) ? "Your ticket won this draw. The prize was paid to your wallet in the settling transaction." : finishedCopy(state, c.winningIndex)}</p>
+      {won && (
+        <Stage
+          className="cb-stage--balls"
+          scene={BallsScene}
+          sceneProps={{ numbers: won.numbers, bonus: won.bonus, runKey: run }}
+          flat={<Balls numbers={won.numbers} bonus={won.bonus} drop />}
+        />
+      )}
       <p className="cb-row"><button type="button" className="cb-btn cb-btn--ghost" onClick={() => setRun(run + 1)}>Replay drop</button></p>
-      <p className="cb-sub">One ticket was drawn at random. The numbers on it are not used to pick the winner.</p>
       <dl className="cb-sum">
-        <dt>Winning ticket</dt><dd className="cb-num">#{winner.index}{me === winner.buyer ? " (yours!)" : ""}</dd>
-        <dt>Paid to</dt><dd><span className="cb-num">{short(winner.buyer)}</span> automatically, {sol(prize)}</dd>
-        <dt>Treasury fee</dt><dd className="cb-num">{sol(fee)}</dd>
+        <dt>Winning ticket</dt><dd className="cb-num">#{c.winningIndex}{me === c.winner ? " (yours!)" : ""}</dd>
+        {won && <><dt>Numbers on it</dt><dd className="cb-num">{won.numbers.map(pad).join(" ")} + {pad(won.bonus)}</dd></>}
+        {c.winningNumbers && <><dt>Drawn numbers</dt><dd className="cb-num">{c.winningNumbers.map(pad).join(" ")} + {pad(c.winningBonus ?? 0)}</dd></>}
+        {!won && <><dt>Numbers on it</dt><dd className="cb-muted">the winning ticket account could not be read just now; the winner and the prize below are read from the draw itself</dd></>}
+        <dt>Paid to</dt><dd><Copyable value={c.winner ?? ""} label="Copy address" display={short(c.winner ?? "")} /></dd>
+        <dt>Prize paid</dt><dd className="cb-num">{sol(prizePaid)}, automatically, in the settling transaction</dd>
+        <dt>Treasury fee</dt><dd className="cb-num">{sol(feeTaken)}</dd>
+        <dt>Tickets sold</dt><dd className="cb-num">{num(c.ticketCount)}</dd>
+        <dt>Pool</dt><dd className="cb-num">{sol(pool)}</dd>
         <dt>Sales closed</dt><dd>{dateTime(c.closeTs)}</dd>
-        {c.randAccount && <><dt>Randomness account</dt><dd><a className="cb-num" href={explorer("address", c.randAccount)} target="_blank" rel="noreferrer">{short(c.randAccount)}</a></dd></>}
-        {c.randomness && <><dt>Revealed value</dt><dd className="cb-num cb-addr">{c.randomness}</dd></>}
       </dl>
-      <p className="cb-muted cb-fine">Randomness comes from Switchboard's TEE-based oracle and is checked by the program at settlement.</p>
+      <Proof c={c} settle={settle} />
+      <p className="cb-muted cb-fine">One ticket was drawn at random. The numbers on it are not used to pick the winner: the winning ticket is the index the revealed randomness produced.</p>
     </div>
   );
 }

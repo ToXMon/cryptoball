@@ -1,5 +1,22 @@
 import { useEffect, useState } from "react";
-import type { Funding } from "./program";
+import type { Funding, Outcome } from "./program";
+
+/** What a finished draw says about itself. A state word on its own ("Settled") is never the answer a friend gets. */
+export const FINISHED_COPY = {
+  settled: (index: number) => `Drawn. Ticket #${index} won and was paid automatically.`,
+  committed: "The draw is committed on-chain and waiting for the randomness reveal. There is no winner yet and nobody has been paid. If the reveal does not arrive within an hour of the commit, this draw is cancelled and every ticket is refunded in full.",
+  cancelled: "This draw was cancelled: the randomness was never revealed inside the one-hour window, so no ticket won and every buyer can refund their ticket in full.",
+  open: "Sales are still open.",
+  /** Sales are shut but nothing has been decided yet: a draw waiting for its commit. */
+  closed: "Sales have closed. This draw has not been committed to randomness yet, so there is no winner and nobody has been paid. From here it settles, or is cancelled and everyone is refunded.",
+} as const;
+
+/** The one sentence a finished draw says about itself, so a card and its results page cannot drift apart. */
+export const finishedCopy = (state: Outcome, winningIndex?: number, salesClosed = false) =>
+  state === "open" ? (salesClosed ? FINISHED_COPY.closed : FINISHED_COPY.open)
+    : state === "settled" ? FINISHED_COPY.settled(winningIndex ?? 0)
+      : state === "cancelled" ? FINISHED_COPY.cancelled
+        : FINISHED_COPY.committed;
 
 /** Copy for the funding helper (components.tsx). Amounts go through the same Intl formatter as the rest of the app. */
 export const FUNDING_COPY = {
@@ -11,6 +28,9 @@ export const FUNDING_COPY = {
   recheck: "Check balance again",
   faucet: "The faucet is run by Solana Labs and hands out free devnet test SOL. It is devnet play money: no value, cannot be withdrawn or sold.",
 } as const;
+
+/** What the in-app claim button can do, in the program's own terms (constants.rs), so the caps are visible before the click. */
+export const CLAIM_CAPS = "In-app claims: 0.11 SOL per claim, 0.33 SOL per wallet, 1 SOL in the pool.";
 
 /**
  * The one rule the checkout card and the wallet dialog card both render from, so they cannot drift apart: only a read
