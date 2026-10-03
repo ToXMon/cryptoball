@@ -1,7 +1,8 @@
 // Smallest runnable check for the pure logic: `pnpm test`.
 import assert from "node:assert/strict";
 import { quickPick, parts } from "./lib.ts";
-import { payout, ERROR_COPY, buyTicket, ProgramError, PROGRAM_ID } from "./program.ts";
+import { payout, ERROR_COPY, buyTicket, ProgramError, PROGRAM_ID, DEVNET_RPC } from "./program.ts";
+import { readFileSync } from "node:fs";
 import { accountFromPrfOutput } from "./passkeyWallet.ts";
 
 assert.deepEqual(payout({ priceLamports: 100_000_000n, ticketCount: 10, feeBps: 1000 }), { pool: 1_000_000_000n, fee: 100_000_000n, prize: 900_000_000n });
@@ -21,4 +22,15 @@ await assert.rejects(buyTicket("w", 1, [5, 5, 6, 7, 8], 1), (e) => e instanceof 
 // or a silent dependency bump moved the keys.
 const known = accountFromPrfOutput(new Uint8Array(32).fill(7));
 assert.equal(known.words.split(" ").length, 24);
+
+// The dedicated QuickNode devnet endpoint is configured; the free public one is gone for good
+// (it rate-limited program uploads and burned pipeline runs). A missed origin in _site.json
+// silently breaks the deployed page, so both files are asserted here.
+const QUICKNODE = "hardworking-broken-field.solana-devnet.quiknode.pro";
+assert.ok(DEVNET_RPC.includes(QUICKNODE), `app endpoint must be the QuickNode devnet plan, got ${DEVNET_RPC}`);
+const site = JSON.parse(readFileSync(new URL("../public/_site.json", import.meta.url), "utf8"));
+assert.deepEqual(site.connect_origins, [DEVNET_RPC, DEVNET_RPC.replace("https://", "wss://")]);
+for (const f of ["program.ts", "Wallet.tsx", "../../ops/open-game.mjs"]) {
+  assert.ok(!readFileSync(new URL(f, import.meta.url), "utf8").includes("api.devnet.solana.com"), `api.devnet.solana.com reappeared in ${f}`);
+}
 console.log("ok", known.address);

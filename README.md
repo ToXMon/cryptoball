@@ -46,6 +46,33 @@ cd app && pnpm install && pnpm dev   # also: pnpm test (pure-logic check), pnpm 
 node --test ops/open-game.test.mjs  # ops guardrails (limits, duplicate, staggering), no chain
 ```
 
+## Devnet RPC endpoint
+
+The app and the ops tooling talk to **one** devnet endpoint, a dedicated QuickNode plan:
+
+```
+https://hardworking-broken-field.solana-devnet.quiknode.pro/ec3c0ae727818aaaead289ef2e844d4df1411e75/
+```
+
+- **Where it lives.** `DEVNET_RPC` in `app/src/program.ts` is the single app constant; `Wallet.tsx`
+  imports it rather than repeating the string. `ops/open-game.mjs` defaults to the same URL and
+  honours `RPC_URL` (or `CRYPTOBALL_RPC`) as an override, so `ops/schedule.sh` and local runs both
+  use it without extra configuration. `app/src/check.ts` fails if `api.devnet.solana.com` reappears
+  in any of those files, or if `app/public/_site.json` stops listing this endpoint.
+- **`app/public/_site.json` `connect_origins`.** The deployed page cannot reach the network unless
+  the origin is listed there, and it ships with the **build** - a missed origin means a silently
+  dead page, not a build error. It carries the `https` origin and the matching `wss` origin (the
+  QuickNode endpoint was verified to accept a real WebSocket upgrade: `slotSubscribe` opened and
+  returned a notification).
+- **The token is public by design.** The app is a public static site, so the URL - token included -
+  is visible to anyone who opens the page. Treat it as a public value: never put anything secret in
+  it, and watch the plan's request quota rather than assuming it is unlimited.
+
+**Why a dedicated endpoint exists.** The free public `api.devnet.solana.com` rate-limited us: HTTP
+429s through the day, failed pipeline test runs, and a program upload that had to be written by hand
+in chunks. A dedicated endpoint removes that as a failure mode; the retry-with-backoff guardrail in
+the ops tool stays, because any endpoint can rate-limit a burst.
+
 ## Ops: opening a game
 
 One command opens one campaign against the deployed devnet program, as the admin
@@ -69,7 +96,7 @@ Guardrails, all of them before anything is signed:
 - **No double-booking.** If a campaign is already `Open` at the same price and its close window
   lands within 2 h of the requested one, it refuses and names that campaign. `--allow-duplicate`
   overrides; `--dry-run` shows the plan and what it would have refused.
-- **No silent half-campaign.** Every RPC call retries with backoff (public devnet answers 429 a
+- **No silent half-campaign.** Every RPC call retries with backoff (RPC endpoints answer 429 a
   lot, so a rate limit is reported, never assumed). If `create_campaign` fails, the tool re-reads
   the chain and logs the exact state it stopped in: whether the campaign account exists, whether
   the Core collection exists, and whether a signature came back.

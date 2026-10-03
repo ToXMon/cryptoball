@@ -3,10 +3,10 @@ import { ConnectionProvider, WalletProvider, useWallet } from "@solana/wallet-ad
 import { WalletReadyState } from "@solana/wallet-adapter-base";
 import { short } from "./lib";
 import { passkeyAddress, passkeyErrorText, registerPasskeyWallet, revealRecoveryPhrase } from "./passkeyWallet";
+import { DEVNET_RPC } from "./program";
 
 // Devnet RPC only (R-74). Wallet Standard wallets (our passkey wallet first, then Phantom and friends, R-65)
 // are auto-detected; no adapter bundle needed.
-const DEVNET_RPC = "https://api.devnet.solana.com";
 const PASSKEY = "Cryptoball Passkey";
 registerPasskeyWallet();
 const Ctx = createContext<() => void>(() => {});

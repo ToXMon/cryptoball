@@ -15,7 +15,9 @@ import { fileURLToPath } from "node:url";
 const { Keypair, PublicKey, SystemProgram, Connection, LAMPORTS_PER_SOL } = web3;
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const RPC = process.env.CRYPTOBALL_RPC || "https://api.devnet.solana.com";
+// Dedicated QuickNode devnet endpoint (the free public RPC rate-limited uploads and pipeline runs).
+// RPC_URL overrides it for one-off runs; ops/schedule.sh inherits the same default.
+const RPC = process.env.RPC_URL || process.env.CRYPTOBALL_RPC || "https://hardworking-broken-field.solana-devnet.quiknode.pro/ec3c0ae727818aaaead289ef2e844d4df1411e75/";
 const WALLET = process.env.ANCHOR_WALLET || `${process.env.HOME}/.tape/cryptoball-deploy.json`;
 const LOG = path.join(ROOT, "ops", "log", "open-game.log");
 const EXPLORER = "https://explorer.solana.com";
@@ -27,7 +29,7 @@ export const LIMITS = {
   maxTickets: 10_000, // MAX_TICKETS
 };
 
-// public devnet rate-limits hard, so every RPC call is retried with backoff.
+// RPCs still rate-limit on bursty plans, so every RPC call is retried with backoff.
 export async function retry(fn, what, tries = 6) {
   let last;
   for (let i = 0; i < tries; i++) {

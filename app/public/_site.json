@@ -1,3 +1,6 @@
 {
-  "connect_origins": ["https://api.devnet.solana.com", "wss://api.devnet.solana.com"]
+  "connect_origins": [
+    "https://hardworking-broken-field.solana-devnet.quiknode.pro/ec3c0ae727818aaaead289ef2e844d4df1411e75/",
+    "wss://hardworking-broken-field.solana-devnet.quiknode.pro/ec3c0ae727818aaaead289ef2e844d4df1411e75/"
+  ]
 }
