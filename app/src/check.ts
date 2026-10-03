@@ -1,9 +1,9 @@
 // Smallest runnable check for the pure logic: `pnpm test`.
 import assert from "node:assert/strict";
 import { quickPick, parts, FUNDING_COPY, sol, fundingCopy } from "./lib.ts";
-import { payout, ERROR_COPY, buyTicket, ProgramError, PROGRAM_ID, describeError, fundingNeeded, isFundingError, FAUCET_URL, FEE_MARGIN_LAMPORTS, FUNDING_ERROR, DEVNET_RPC, needsFunding, funding, CARTON_COST_LAMPORTS, blocksPayment, payGate } from "./program.ts";
+import { payout, ERROR_COPY, buyTicket, ProgramError, PROGRAM_ID, describeError, fundingNeeded, isFundingError, FAUCET_URL, FUNDING_ERROR, DEVNET_RPC, funding, payGate } from "./program.ts";
 import { readFileSync } from "node:fs";
-import { accountFromPrfOutput } from "./passkeyWallet.ts";
+import { createBalanceRead, type BalanceState } from "./balance.ts";import { accountFromPrfOutput } from "./passkeyWallet.ts";
 
 assert.deepEqual(payout({ priceLamports: 100_000_000n, ticketCount: 10, feeBps: 1000 }), { pool: 1_000_000_000n, fee: 100_000_000n, prize: 900_000_000n });
 assert.equal(payout({ priceLamports: 3n, ticketCount: 1, feeBps: 1000 }).fee, 0n); // floor
