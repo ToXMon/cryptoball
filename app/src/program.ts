@@ -200,6 +200,11 @@ export const ERROR_COPY = {
   TreasuryBelowRent: "The treasury wallet is below rent exemption.",
   RandomnessExhausted: "The revealed randomness could not produce draw numbers.",
   Overflow: "A number overflowed. Please try again.",
+  // Devnet SOL faucet (claim_sol). Appended in the same order as errors.rs.
+  ClaimTooLarge: "That is more than one claim allows. Ask for 0.11 SOL or less.",
+  ClaimLifetimeCap: "This wallet has already claimed its lifetime allowance from the faucet.",
+  FaucetDrained: "The faucet is empty for now. It is topped up periodically - try again later.",
+  FaucetEmpty: "The faucet does not have enough SOL right now. Try again later.",
 } as const;
 export type CryptoballError = keyof typeof ERROR_COPY;
 

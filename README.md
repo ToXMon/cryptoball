@@ -6,7 +6,7 @@ Raffle-style: players buy tickets with SOL (5 numbers from 1-69 plus a Cryptobal
 
 ## Status
 
-Phases 1 to 2 (requirements, architecture, scaffold), the frontend phase and the Phase 3 program build: all instructions implemented (`initialize`, `update_config`, `nominate_admin`, `accept_admin`, `create_campaign`, `buy_ticket`, `commit_draw`, `settle_draw`, `cancel_campaign`, `refund_ticket`), each with happy-path and negative tests on LiteSVM (`tests/0*.test.ts`) plus a lifecycle and conservation test. `settle_draw` also derives the 5-of-69 plus Cryptoball display numbers (`winner::winning_numbers`, unbiased rejection sampling, fails closed instead of falling back to modulo); `initialize` takes the treasury as an account; `close_campaign` is still not built (design.md section 5).
+Phases 1 to 2 (requirements, architecture, scaffold), the frontend phase and the Phase 3 program build: all instructions implemented (`initialize`, `update_config`, `nominate_admin`, `accept_admin`, `create_campaign`, `buy_ticket`, `commit_draw`, `settle_draw`, `cancel_campaign`, `refund_ticket`, `claim_sol`), each with happy-path and negative tests on LiteSVM (`tests/0*.test.ts`) plus a lifecycle and conservation test. `claim_sol` is a devnet-only capped SOL faucet with no server behind it; see "Devnet SOL faucet" below. `settle_draw` also derives the 5-of-69 plus Cryptoball display numbers (`winner::winning_numbers`, unbiased rejection sampling, fails closed instead of falling back to modulo); `initialize` takes the treasury as an account; `close_campaign` is still not built (design.md section 5).
 The program is **live on devnet** (receipts below) and the web app talks to it for real: `app/src/program.ts` builds `buy_ticket` / `refund_ticket` instructions against the deployed program id and the devnet RPC. The web app also offers a **passkey wallet** (`app/src/passkeyWallet.ts`): a Wallet Standard wallet whose ed25519 key is derived on the player's device from a WebAuthn passkey PRF output via [mera](https://mera.category.xyz) 0.2.0. It is a plain keypair, not a smart account; installed wallets (Phantom and friends) remain as a second path in the same dialog.
 `settle_draw` reads the value the oracle persisted in the randomness account, so settlement is not bound to the exact reveal slot; it must still land inside the same window `cancel_campaign` uses (see the receipts' operational notes). Build order is `docs/design.md` section 17.
 
@@ -16,6 +16,190 @@ The program is **live on devnet** (receipts below) and the web app talks to it f
 | [docs/design.md](docs/design.md) | Account map, PDA seeds, instructions, state machine, CPI plan, threat model, swappable winner unit |
 | [docs/diagrams/](docs/diagrams/) | D1-D9 architecture diagrams (SVG) |
 
+## Devnet SOL faucet (devnet only)
+
+A capped, on-chain drip so a player can get devnet SOL without a server. **Devnet only, play money.**
+`claim_sol` must never exist on a real-money deployment (design.md T19).
+
+- **Permissionless.** Anyone on devnet can claim, not just the captain's friends. Devnet SOL is worthless.
+- **Ceilings, all enforced on-chain and none of them client-settable:**
+  - `MAX_CLAIM_LAMPORTS` = `110_000_000` (0.11 SOL) per claim - program constant, **adjustable**, redeploy to retune.
+  - `MAX_CLAIM_LIFETIME_LAMPORTS` = `330_000_000` (0.33 SOL) per wallet, cumulative - program constant, **adjustable**.
+  - `pool_lamports`, the total the admin has budgeted, lives in program state and is changed by
+    `update_faucet_pool`. **Adjustable with no redeploy.**
+- **Pool arithmetic, stated plainly.** A 1.0 SOL pool against a 0.33 SOL lifetime ceiling serves about
+  **three wallets to three tickets each, or nine wallets to one ticket each.** The pool, not the caps,
+  is the real constraint on how many friends can play.
+- **The hard backstop is the vault balance, not the constants.** Whatever ceiling is set, `claim_sol`
+  also refuses to leave the vault below its rent-exempt minimum (`FaucetEmpty`).
+- **Sybil-weak on purpose.** There is no identity behind a wallet, so a determined caller can claim from
+  many wallets. That is accepted for a devnet faucet.
+- **Money separation.** The faucet vault is a bare system PDA seeded `["faucet-vault"]`, whose derivation
+  contains no campaign key. Ticket proceeds, prizes and refunds are structurally unreachable.
+
+### Instructions
+
+| Instruction | Signer | Args | Effect |
+|---|---|---|---|
+| `initialize_faucet` | **admin** (gated by `Config.admin`) | `pool_lamports`, `starting_dispensed` | Creates the ledger. The **only** path that can. |
+| `update_faucet_pool` | **admin** | `pool_lamports` | Raises the budget. This is what makes a refill work. |
+| `claim_sol` | anyone | `amount` | Pays the signer from the vault, if all three ceilings allow. |
+
+**Why the ledger is admin-created.** It used to be created by `claim_sol` via `init_if_needed` at a
+publicly derivable PDA. That was a real vulnerability: a third party could squat the address with a
+plain 0.0009 SOL transfer and permanently brick the faucet for everyone, stranding the vault's SOL,
+because no user-reachable instruction would ever have created it again. Now `claim_sol` references the
+ledger with no creation path at all. Regression tests cover it (design.md T20).
+
+*Residual, stated rather than hidden:* a lamport transfer to the ledger PDA in the window before the
+admin's first `initialize_faucet` would block that one-time init. The remedy is a seed bump via upgrade.
+Once initialised the ledger's data is untouchable: a lamport transfer to the PDA changes only lamports,
+because only the program can write `dispensed` or `pool_lamports`. Proven on devnet below.
+
+### `claim_sol` wiring (UI lane)
+
+Args: `amount: u64` lamports, `1..=110_000_000`.
+
+| # | Account | Writable | Signer | Notes |
+|---|---|---|---|---|
+| 1 | `claimer` | yes | **yes** | connected wallet; pays the tx fee and, on its first claim, the rent of its `claim_record` PDA. Also the payment target. |
+| 2 | `claimRecord` | yes | no | PDA `["claim", claimer]`, created if missing |
+| 3 | `faucet` | yes | no | PDA `["faucet-v2"]`; holds `dispensed` and `pool_lamports` |
+| 4 | `faucetVault` | yes | no | PDA `["faucet-vault"]`, the funded SOL |
+| 5 | `systemProgram` | no | no | `11111111111111111111111111111111` |
+
+Event `SolClaimed { claimer, amount, lifetime_claimed, pool_dispensed }`.
+
+| Error code | Number | Message |
+|---|---|---|
+| `ClaimTooLarge` | 6019 | Claim amount is zero or above the per-claim maximum |
+| `ClaimLifetimeCap` | 6020 | This wallet has reached its lifetime faucet cap |
+| `FaucetDrained` | 6021 | The faucet pool is exhausted |
+| `FaucetEmpty` | 6022 | The faucet vault holds less than the claim amount |
+| `BadAccount` | 6011 | Account does not match the derived address |
+
+**A wallet at zero SOL cannot claim.** The first claim creates its `claim_record` PDA and the claimer
+pays that rent (about 0.0016 SOL) plus the tx fee. Devnet SOL for gas has to come from elsewhere
+(faucet.solana.com, or an existing wallet); the 0.11 SOL itself always comes from the faucet. Ask for
+the gas top-up before showing the button, or send it from a warm wallet.
+
+### PDAs (devnet, program `GtdcPM3...`)
+
+| Account | Seeds | Address |
+|---|---|---|
+| `faucet` | `["faucet-v2"]` | [`7izC4mjxqEskF2XxVugBXSuz5Y7hUG7ENRX9YCkhpXHn`](https://explorer.solana.com/address/7izC4mjxqEskF2XxVugBXSuz5Y7hUG7ENRX9YCkhpXHn?cluster=devnet) |
+| `faucet-vault` | `["faucet-vault"]` | `BgtBRka9TEQa5revD2D1A46mG9rppXRqHF5F6h3tNyt` |
+
+
+### Faucet receipts (devnet, 2026-10-03)
+
+Deploy wallet `9ACfknzt...` balance: **6.54267132** SOL before this work, **5.395798880** SOL after. The
+difference is the 1.0 SOL vault top-up below, the two dust transfers to the test wallets, the claim fees
+and the programdata top-up for the new build (2.591435 SOL, up from 2.50133612).
+
+| Item | Value |
+|---|---|
+| Program upgrade tx (admin-created ledger + refill) | [`uALRH5rGrTLtZaNNNe81rCLVer8KXFhgArB3AzXRktxq41yyff7F5fYWHkFiJpJ5R2KXnSfAJ2oLZ3iWvzHd6ZD`](https://explorer.solana.com/tx/uALRH5rGrTLtZaNNNe81rCLVer8KXFhgArB3AzXRktxq41yyff7F5fYWHkFiJpJ5R2KXnSfAJ2oLZ3iWvzHd6ZD?cluster=devnet) |
+| `initialize_faucet` tx | [`5zYF2Si9HUYmAgAtoaJtyrzgTVy5wjEpi5vNnXJp59Sm6CUkcw3VAk8DGz6JSuujTJEu6Au95md4fs3Jr5zjxoQ4`](https://explorer.solana.com/tx/5zYF2Si9HUYmAgAtoaJtyrzgTVy5wjEpi5vNnXJp59Sm6CUkcw3VAk8DGz6JSuujTJEu6Au95md4fs3Jr5zjxoQ4?cluster=devnet) |
+| Ledger after init | `dispensed = 330000000` (carried forward from the retired v1 ledger), `pool = 1000000000` |
+| Vault after the run | `340000000` lamports (1.0 funded, 0.33 spent by the v1 proof, 0.33 by this one) |
+
+Squat attempt, after the ledger was created - the published attack. Transfer tx
+[`2vegSF48JTBjyFub3Yv9pFc7bieHjGTtocZSpf6SpgN4ZBcRqTMa2vM2hbiYj337f7eqehumXP5DDSYwD89fjthW`](https://explorer.solana.com/tx/2vegSF48JTBjyFub3Yv9pFc7bieHjGTtocZSpf6SpgN4ZBcRqTMa2vM2hbiYj337f7eqehumXP5DDSYwD89fjthW?cluster=devnet)
+landed, and **the ledger's bytes were byte-for-byte unchanged** - `dispensed` and `pool` untouched,
+because only the program can write them.
+
+Claims from a brand-new address, `3kQuDPPfW9ubhwUCAJ3f2SVWCSvya3LiCrTfetpjdGDG`, dusted with 0.02 SOL of
+gas from the deploy wallet (the devnet airdrop was rate limited):
+
+| Claim | Result | Tx |
+|---|---|---|
+| 0.11 SOL, fresh wallet | **succeeds** (0.02 -> 0.129100920 SOL) | [`3nFTqzVNybVsVUdgi3vYhnr1oY81BFVehDYUVtuaNCujYdnuqMoAnQwmA6bBnDpJeUf4H2dJAPbZGN2Z5kgDFd53`](https://explorer.solana.com/tx/3nFTqzVNybVsVUdgi3vYhnr1oY81BFVehDYUVtuaNCujYdnuqMoAnQwmA6bBnDpJeUf4H2dJAPbZGN2Z5kgDFd53?cluster=devnet) |
+| 0.5 SOL, over the per-claim maximum | **rejected**, `ClaimTooLarge` (6019) | [`4yiEd1nqtXtu9JFpQmQoJESEtbUj3kjDWohVhzWg52w7gHh5XXZ8gMdvRhjFqfb7WEUYRP1HWp8VPqBLpbfULCTo`](https://explorer.solana.com/tx/4yiEd1nqtXtu9JFpQmQoJESEtbUj3kjDWohVhzWg52w7gHh5XXZ8gMdvRhjFqfb7WEUYRP1HWp8VPqBLpbfULCTo?cluster=devnet) |
+| 0.11 SOL, second | succeeds | [`4MVGaCNU1wn5Xhu9Hymp7JBt2n3MJSaDX2iKBqmKLf8uKTzwxG2UA6PM5pUX4BSHXokiPXdcFvgnum92LcNNwzXL`](https://explorer.solana.com/tx/4MVGaCNU1wn5Xhu9Hymp7JBt2n3MJSaDX2iKBqmKLf8uKTzwxG2UA6PM5pUX4BSHXokiPXdcFvgnum92LcNNwzXL?cluster=devnet) |
+| 0.11 SOL, third (lifetime 0.33) | succeeds | [`2doHX1iVB2Taakx5fLuprJY6NG9H4S4LkPfNccqY8L835acXTUmcEcWthL3KuNAyXvndmybkBYLQZvv3Gv8tWHJF`](https://explorer.solana.com/tx/2doHX1iVB2Taakx5fLuprJY6NG9H4S4LkPfNccqY8L835acXTUmcEcWthL3KuNAyXvndmybkBYLQZvv3Gv8tWHJF?cluster=devnet) |
+| 0.01 SOL, over the lifetime ceiling | **rejected**, `ClaimLifetimeCap` (6020) | [`3syFCESbnPnVKToVMYmbu1BatMd54YonGLAs4qwbJvDQvZdpxcQxSX9pKnQFEwXSiVCL4buQUF3oddTrbcqnkMgR`](https://explorer.solana.com/tx/3syFCESbnPnVKToVMYmbu1BatMd54YonGLAs4qwbJvDQvZdpxcQxSX9pKnQFEwXSiVCL4buQUF3oddTrbcqnkMgR?cluster=devnet) |
+
+Claim delta check: 110,000,000 - 109,100,920 = 899,080 lamports = 894,080 (rent of the 48-byte
+`claim_record`, the cluster's own `getMinimumBalanceForRentExemption`) + 5,000 tx fee. The vault only
+existed from a prior run, so this claim paid no second account's rent.
+
+**Ticket money untouched.** Campaign 1's vault
+[`7iSvSBMT7fzk1Rei32AEaVpmhry2TvCQFEG6H8kdyJU5`](https://explorer.solana.com/address/7iSvSBMT7fzk1Rei32AEaVpmhry2TvCQFEG6H8kdyJU5?cluster=devnet)
+read `100000000` lamports immediately before the five claims and `100000000` immediately after.
+
+Superseded history: the first upgrade (`5SSnfgMjMPHKP2dBjfL9U96KxkvHgPhYmbz26RZiQUKR3EL4PpFbYGGjT6ndtuAxECXSZrZ3efZ5Fy4G63tUL8xM`)
+added `claim_sol` with the v1 ledger and the griefable `init_if_needed` path. It was live for about
+three hours and is replaced by the upgrade above.
+
+### Refilling the faucet (two steps, no redeploy)
+
+The ceiling only moves through `update_faucet_pool`, so a bare transfer alone does **not** reopen a
+drained faucet. Do both:
+
+```
+# 1. add SOL to the vault (this alone changes nothing about the ceiling)
+solana transfer --url devnet --keypair ~/.tape/cryptoball-deploy.json \
+  BgtBRka9TEQa5revD2D1A46mG9rppXRqHF5F6h3tNyt <SOL_AMOUNT>
+
+# 2. raise the budget to the new target total
+#    update_faucet_pool(pool_lamports = <new total in lamports>)
+```
+
+`pool_lamports` is the cumulative target, not an increment, and may never be set below what has already
+been dispensed. Raising it above `INITIAL_POOL_LAMPORTS` is allowed - that is the point of a refill.
+
+### Follow-up recommendation (not a code change)
+
+**Should the per-wallet lifetime ceiling be 0.33 SOL or 0.11 SOL?** The captain's words were "0.11 per
+claim per wallet", which the code honours as the per-claim drip; the 0.33 lifetime ceiling was added on
+top as a Sybil mitigation and approved as a sensible default. Narrowing it to 0.11 would raise the
+usable wallets per 1.0 SOL pool from ~3 to ~9 at one ticket each. Carried to the captain as an explicit
+question; the code keeps 0.33 until that answer lands.
+#### Deploying to devnet: what actually happened
+
+Operational history, because the obvious command does not work and repeating it wastes hours.
+
+`solana program deploy` failed twice with **`Error: Data writes to account failed: Custom error: Max
+retries exceeded`** (after ~35 and ~60 minutes). Not the program's fault:
+
+- The deploy wallet needs about **2.75 SOL for a 509 KB build** at once, because the loader stages the
+  binary in a *buffer* account holding rent for its whole size (2.591394360 SOL here) until the upgrade
+  lands. That rent comes back on success and is **stranded on failure** - two orphan buffers,
+  2.50133612 SOL each, had to be reclaimed with `solana program close <buffer> --keypair <dev wallet>`
+  (the buffer's authority is the deploy wallet, so no separate key is needed). Nothing was left stuck.
+- `api.devnet.solana.com` rate limits by IP. The CLI's buffer writes plus signature-status polling trip
+  the limit, the writes start failing, and it exhausts its retries. It is also load balanced, so a
+  blockhash from one node frequently fails preflight on another ("Blockhash not found").
+- A dedicated QuickNode devnet endpoint fixes the rate limiting but **caps RPC request bodies**: both
+  `--use-rpc` and `--use-tpu-client` fail with `413 Request Entity Too Large` on the write path *and* on
+  the final upgrade transaction. A paid endpoint is necessary but not sufficient on its own.
+
+**What works:** `scripts/write-buffer.js` creates the loader buffer and fills it itself - 850 bytes per
+transaction, two trivial loader instructions (`InitializeBuffer`, `Write`), a configurable gap between
+writes. It asks the cluster for the rent-exempt minimum via `getMinimumBalanceForRentExemption` rather
+than hardcoding a lamports-per-byte rate, because that rate has already drifted once on this cluster and
+a stale constant silently under-funds the buffer. 601 chunks took **~38 min against QuickNode**
+(`GAP_MS=250`) versus ~46 min against the public endpoint at `GAP_MS=2000`. Then:
+
+```
+export RPC=<your devnet https endpoint>
+RPC=$RPC GAP_MS=250 node scripts/write-buffer.js target/deploy/cryptoball.so /tmp/faucet-buffer.json
+solana program deploy target/deploy/cryptoball.so \
+  --program-id GtdcPM3LTX8G8pB1bVW1jWfuxTj3kZmD3axt4Q7whBpC \
+  --keypair ~/.tape/cryptoball-deploy.json --buffer /tmp/faucet-buffer.json --max-len 509952
+```
+
+The CLI finds the buffer already full, so it writes nothing and only performs the upgrade. Two gotchas
+worth knowing: QuickNode 413s on the final upgrade tx too (do that single step against
+`api.devnet.solana.com`), and a stale blockhash there fails with `Program was deployed in this block
+already` - just retry.
+
+Budget **2.75 SOL** per upgrade and keep `scripts/write-buffer.js` in your back pocket. The floor is
+observable: the programdata account must stay rent-exempt for the new size (2.591435 SOL at 509,952
+bytes). `scripts/faucet-proof.js` regenerates the claim receipts above.
+
+
 ## Layout
 
 ```
@@ -23,6 +207,7 @@ programs/cryptoball/   Anchor program (instructions, state, events, errors, cons
 tests/                 ts-mocha + LiteSVM: harness.ts, one test file per instruction, lifecycle; fixtures/mpl_core.so = devnet Core binary
 app/                   React + Vite player app (Prime Time design, 3D ticket, draw-night ball drop); src/tokens.css = design tokens; src/program.ts = devnet program adapter (builds Anchor instructions); src/passkeyWallet.ts = passkey (Wallet Standard) wallet
 docs/                  requirements, design, diagrams
+scripts/                write-buffer.js (devnet upgrade, chunked buffer upload), faucet-proof.js (claim receipts)
 ```
 
 ## Toolchain (pinned)

@@ -9,7 +9,11 @@ crate-type = ["cdylib", "lib"]
 name = "cryptoball"
 
 [features]
-default = []
+# init-if-needed is on by default so the documented `cargo build-sbf` and `anchor build` both work.
+# Safe here: every typed account is seed-pinned, so the relaxed zero-length-account deserialization
+# that the feature enables can never turn a wrong address into a valid account.
+default = ["init-if-needed"]
+init-if-needed = ["anchor-lang/init-if-needed"]
 cpi = ["no-entrypoint"]
 no-entrypoint = []
 no-idl = []
