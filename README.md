@@ -207,6 +207,7 @@ programs/cryptoball/   Anchor program (instructions, state, events, errors, cons
 tests/                 ts-mocha + LiteSVM: harness.ts, one test file per instruction, lifecycle; fixtures/mpl_core.so = devnet Core binary
 app/                   React + Vite player app (Prime Time design, 3D ticket, draw-night ball drop); src/tokens.css = design tokens; src/program.ts = devnet program adapter (builds Anchor instructions); src/passkeyWallet.ts = passkey (Wallet Standard) wallet
 docs/                  requirements, design, diagrams
+ops/                   open-game.mjs (open a campaign), cancel-refund.mjs (cancel + refund a stuck campaign), admin.mjs (admin handover), schedule.sh (launchd rolling schedule), cryptoball.idl.json (committed IDL of the deployed program)
 scripts/                write-buffer.js (devnet upgrade, chunked buffer upload), faucet-proof.js (claim receipts)
 ```
 
@@ -228,7 +229,7 @@ cargo test -p cryptoball          # pinned-id check
 cargo build-sbf --manifest-path programs/cryptoball/Cargo.toml
 anchor build && pnpm install && pnpm test   # LiteSVM suite (needs target/deploy/cryptoball.so)
 cd app && pnpm install && pnpm dev   # also: pnpm test (pure-logic check), pnpm build
-node --test ops/*.test.mjs  # ops guardrails (limits, duplicate, staggering, admin guards, IDL), no chain
+node --test ops/*.test.mjs  # ops guardrails (limits, duplicate, staggering, admin guards, cancel eligibility, IDL), no chain
 ```
 
 ## Devnet RPC endpoint
@@ -370,8 +371,66 @@ Every run appends one line to `ops/log/open-game.log` (`OPENED {...}` with addre
 signature and cost; `DRYRUN`; `REFUSED <why>`; `FAILED <why> state=<what exists on chain>`), so a
 silent unattended failure is not possible - check `ops/schedule.sh status`.
 
-The job is **not installed by default**: this worktree is disposable and the captain picks the
-cadence after seeing the cost below.
+#### Armed on this host (2026-10-03), and how to turn it off
+
+The job is installed and has fired for real:
+
+| Item | Value |
+|---|---|
+| plist | `~/Library/LaunchAgents/site.cryptoball.open-game.plist` (label `site.cryptoball.open-game`) |
+| Cadence | `StartInterval` 21600 s = **every 6 h**, `RunAtLoad` false |
+| Price / cap / duration | 0.1 SOL, cap 1000, `--duration auto` (rotates 6 / 10 / 14 h by wall-clock slot) |
+| ROOT it runs from | `/Users/tolushekoni/agent-workspace/projects/cryptoball` - set with `CRYPTOBALL_ROOT`, because the plist hardcodes ROOT and a disposable worktree would leave the job firing a path that no longer exists |
+| Logs | `ops/log/open-game.log` (one receipt line per run), `ops/log/scheduler.log` (stdout/stderr of the tick), `ops/log/launchd.{out,err}.log` (launchd's own capture) |
+| Turn it off | `ops/schedule.sh stop` (unload, plist stays) or `ops/schedule.sh uninstall` (unload and delete) |
+| Run one now | `ops/schedule.sh now --dry-run` (plan only) or `ops/schedule.sh start` (kickstart through launchd, interval keeps running) |
+
+At one campaign per 6 h with 6 / 10 / 14 h close windows, two or three campaigns are open at any
+time and no two closes land in the same 2 h bucket.
+
+**Burn rate: 0.002956400 SOL per campaign, every 6 h = 0.0118256 SOL/day (~0.35 SOL per 30 days,
+~4 campaigns/day).** At that rate the current deploy-wallet balance lasts about 460 days, and
+devnet airdrops are the real constraint long before the arithmetic.
+
+Two bugs were found and fixed while arming it, both of which produced exactly the failure the
+brief warns about - a job that loads and never runs:
+
+1. **`set -e` + `command -v node`.** launchd starts jobs with `PATH=/usr/bin:/bin:/usr/sbin:/sbin`.
+   `command -v node` found nothing, returned non-zero, and `set -e` killed the script before it
+   printed anything or created a log - the job sat "loaded", `last exit code = 1`, and both log
+   files empty. `schedule.sh` now resolves node from the usual prefixes (or `SCHEDULE_NODE`) and
+   says so plainly on stderr if it truly cannot.
+2. **`ROOT` pointing at a checkout with no `node_modules`.** The tick ran and died with
+   `ERR_MODULE_NOT_FOUND: '@coral-xyz/anchor'`. `pnpm install --frozen-lockfile` in that checkout
+   fixed it (`node_modules/` and `ops/log/` are gitignored, so the repo stays clean).
+
+To verify a job is really firing, do not trust `launchctl list` - it is happy with a job that has
+never executed. Kick it and read the receipt:
+
+```
+launchctl kickstart -k "gui/$UID/site.cryptoball.open-game"
+tail -3 /Users/tolushekoni/agent-workspace/projects/cryptoball/ops/log/scheduler.log
+grep OPENED /Users/tolushekoni/agent-workspace/projects/cryptoball/ops/log/open-game.log | tail -3
+launchctl print "gui/$UID/site.cryptoball.open-game" | grep -E "runs =|last exit"
+```
+
+Note that the label is one per user: any other lane installing `site.cryptoball.open-game` on this
+host replaces this job, and two jobs would double-open campaigns.
+
+**Two follow-ups that this does not solve.**
+
+- **Nothing sweeps a draw once it closes.** The opener opens games; nothing commits, retries the
+  Switchboard reveal, settles, or cancels-and-refunds. That is exactly why campaign 3 stranded a
+  buyer for 15 h: the timeout path works and is now one command (`node ops/cancel-refund.mjs --id
+  <n>`), but nothing calls it. Adding one launchd job (or one more branch in `run_tick`) that
+  walks expired `Open` campaigns to `commit_draw`, then `settle_draw`, then falls back to
+  `cancel-refund.mjs` after the reveal timeout closes the loop. Left out here on purpose: it moves
+  money unattended, so it wants its own review.
+- **`CAMPAIGN_IDS` in `app/src/program.ts` is a hardcoded list**, so every campaign the scheduler
+  opens is invisible on the site until the list is bumped and `tape deploy` runs. Discovering ids
+  from the chain (`getProgramAccounts` + the campaign discriminator, which `ops/open-game.mjs`
+  already does) would make the lobby self-updating. Listed `[1..8]` now; the scheduler is opening
+  campaign 9 at the next tick.
 
 ### Cost, honestly
 
@@ -415,8 +474,100 @@ Toolchain for the deployed build: anchor-cli 0.32.1, solana-cli 4.2.2, cargo-bui
 | Cost to the deploy wallet | 0.002956400 SOL (2,956,400 lamports), measured by balance delta |
 
 Opened by `node ops/open-game.mjs --price 0.1 --duration 10 --cap 1000` on the deployed program.
-Not yet visible in the web app: `CAMPAIGN_IDS` in `app/src/program.ts` still lists `[1]` only, and
-that list is player-facing app policy, not ops. `open-game` prints the reminder on every open.
+Not yet visible in the web app at the time it was opened: `CAMPAIGN_IDS` in `app/src/program.ts`
+still listed `[1]` only, and that list is player-facing app policy, not ops. `open-game` prints the
+reminder on every open. **Now `[1..8]`** - see the follow-up below, the list is still the reason a
+newly scheduled campaign is invisible until the site is rebuilt.
+
+### Campaigns 5, 6, 7 (opened by hand so players have something to buy)
+
+Four campaigns existed and none of them was playable. These three went out minutes later, at the
+agreed tiers, with staggered close windows so no two land together.
+
+| id | price | cap | closes (UTC) | campaign | create_campaign tx |
+|---|---|---|---|---|---|
+| 5 | 0.01 SOL | 1000 | 2026-10-03T23:55:44Z (12 h) | [`9VDiikwWXAShF4SFujcw4t1oDrDPVFBy531E4HfctaP7`](https://explorer.solana.com/address/9VDiikwWXAShF4SFujcw4t1oDrDPVFBy531E4HfctaP7?cluster=devnet) | [`GGwTwmsNm9xHaYKKxn2Ybdw6FNGGcxm8rKXG1EBR6SdyJWPDiZosv1XuRYEdL3bP8yE6riNxETaQ8HSPKdktTy3`](https://explorer.solana.com/tx/GGwTwmsNm9xHaYKKxn2Ybdw6FNGGcxm8rKXG1EBR6SdyJWPDiZosv1XuRYEdL3bP8yE6riNxETaQ8HSPKdktTy3?cluster=devnet) |
+| 6 | 0.1 SOL | 1000 | 2026-10-04T11:55:47Z (24 h) | [`AMi5YG69N9sToftohxWRubMenY27AfU5DBLTVBYSD9Qv`](https://explorer.solana.com/address/AMi5YG69N9sToftohxWRubMenY27AfU5DBLTVBYSD9Qv?cluster=devnet) | [`ThfqcmcCacD6B5dXDd9LSUQB9AEA6QteuiMCnMVoC7g46gNpB9anFeK3zGxtDnwz6yBY7EZkGZUNSW6R9SRfrJx`](https://explorer.solana.com/tx/ThfqcmcCacD6B5dXDd9LSUQB9AEA6QteuiMCnMVoC7g46gNpB9anFeK3zGxtDnwz6yBY7EZkGZUNSW6R9SRfrJx?cluster=devnet) |
+| 7 | 1 SOL | 1000 | 2026-10-03T19:55:53Z (8 h) | [`AtBH73Z9PMAAe3hpjDpikyuQc7dLSU9yoDVkyxGcgVNb`](https://explorer.solana.com/address/AtBH73Z9PMAAe3hpjDpikyuQc7dLSU9yoDVkyxGcgVNb?cluster=devnet) | [`2EfczUJjYdYmhzxEG9wwaNGeaUn9dvMHtMXXNFidncaydTQVi855LmA1Rj9sCg74mevSayhJVH7uFFkP31CFtA5X`](https://explorer.solana.com/tx/2EfczUJjYdYmhzxEG9wwaNGeaUn9dvMHtMXXNFidncaydTQVi855LmA1Rj9sCg74mevSayhJVH7uFFkP31CFtA5X?cluster=devnet) |
+
+Each cost **0.002956400 SOL** (2,956,400 lamports), measured by balance delta - same figure as
+campaign 4. Campaign 8 (below) was opened by the scheduler, not by hand.
+
+### Campaign 8 (opened by the rolling schedule, through launchd)
+
+Proof that the armed launchd job actually sends, not just that it loaded.
+
+| Item | Value |
+|---|---|
+| Campaign / vault | [`EEwGQaB8S5tzMRjHgzG2Po8Fwjv8U1D3AveUALWdwQ6t`](https://explorer.solana.com/address/EEwGQaB8S5tzMRjHgzG2Po8Fwjv8U1D3AveUALWdwQ6t?cluster=devnet) / `1248ZXJwbT4MX2qVBCF7vjJ2e36TMB8Cc9VSfSze9tkx` |
+| Parameters | 0.1 SOL, cap 1000, closes 2026-10-03T22:06:33Z (`--duration auto` = 10 h slot) |
+| create_campaign tx | [`4JLxybS6GxBxGYwoa9ZytrHcsr4MLmhXCdB8HYLw6Ys2gfBTAnQPnpor2PvHQRzvWLxNNNkdr616NTwDhVN5ht1w`](https://explorer.solana.com/tx/4JLxybS6GxBxGYwoa9ZytrHcsr4MLmhXCdB8HYLw6Ys2gfBTAnQPnpor2PvHQRzvWLxNNNkdr616NTwDhVN5ht1w?cluster=devnet) |
+| Opened by | `launchctl kickstart gui/$UID/site.cryptoball.open-game` at 2026-10-03T12:06:33Z |
+| Log line | `/Users/tolushekoni/agent-workspace/projects/cryptoball/ops/log/scheduler.log`, receipt line in `ops/log/open-game.log` |
+
+### Campaign 3 (was stranded: DrawCommitted, never revealed) - resolved and refunded
+
+Campaign 3 sat `DrawCommitted` for ~15 h past its close with one ticket sold and nobody moving it.
+**Diagnosis, read from chain, not inferred:** `committed_at` = 2026-10-02T21:00:15Z, `seed_slot`
+= 506762740, randomness account `2vCjqRLqUYLPDm25Hcaf3fRv5o5YGDe56ff5EeG3ik3a`. That account is on
+chain (480 bytes, owner `Aio4gaXj...` = Switchboard On-Demand devnet) with **`reveal_slot = 0`** and
+an all-zero `value`: the oracle never revealed. It now also holds a *later* `seed_slot`, so
+`settle_draw`'s `require(r.seed_slot == c.seed_slot)` can never be satisfied for this campaign
+either - **settlement was impossible, cancel-and-refund was the only way out.** The commit itself
+was fine and landed after close, as designed; there was no timeout sweep on this host, which is why
+a resolvable draw sat for 15 h (named follow-up below).
+
+New tool: `ops/cancel-refund.mjs` cancels a campaign once the program allows it and refunds every
+`Active` ticket, printing a receipt per transaction. It is permissionless work - the same two
+instructions anyone could send - wrapped with the guardrails that make it safe to run blind:
+`--dry-run` first, the eligibility gate explained before signing, and a skipped/already-cancelled
+campaign reported instead of forced.
+
+```
+node ops/cancel-refund.mjs --id 3 --dry-run   # plan, sends nothing
+node ops/cancel-refund.mjs --id 3             # cancel + refund, receipts with Explorer links
+```
+
+| Item | Value |
+|---|---|
+| cancel_campaign tx | [`2PVuRe2S83afT4FkaXw3ChYVWkZdQEZMkCqAmLxzGQtsEQAuhJrZNbmzvCnfCB8QHKSZYL3fbEhiP2f2rcumEsVg`](https://explorer.solana.com/tx/2PVuRe2S83afT4FkaXw3ChYVWkZdQEZMkCqAmLxzGQtsEQAuhJrZNbmzvCnfCB8QHKSZYL3fbEhiP2f2rcumEsVg?cluster=devnet) (eligible 15 h after the deadline: `DrawCommitted` + `now > committed_at + 3600`) |
+| refund_ticket tx (campaign 3, ticket `HhgJfrvTUVxRFwug6MwpgWJgV1H9byGpxYwgQmDGpTCH`) | [`2pykChR8m8MPKCD4WqmQXLvaco3rt4jcUuC7H4qrxqjJRw3fxJtt8c4Z8iFw6nUbcyb7NoGRC1RS2dw2wYfmf7v2`](https://explorer.solana.com/tx/2pykChR8m8MPKCD4WqmQXLvaco3rt4jcUuC7H4qrxqjJRw3fxJtt8c4Z8iFw6nUbcyb7NoGRC1RS2dw2wYfmf7v2?cluster=devnet) |
+| Buyer | [`9ACfknztv9UqJLLccZnBgjxFNbkNZERMwJbikj4dait7`](https://explorer.solana.com/address/9ACfknztv9UqJLLccZnBgjxFNbkNZERMwJbikj4dait7?cluster=devnet) (the deploy wallet had bought its own ticket - so the refund returned 0.1 SOL to the same wallet that paid it) |
+| Buyer balance delta, measured around the refund tx | **+99,995,000 lamports = 0.099995 SOL** (0.1 SOL ticket price less the 5,000-lamport tx fee) |
+| Cost to run the rescue | 0.000005 SOL (cancel) + 0.000000 SOL net for the refund tx (it paid 0.1 SOL back out) |
+
+Read back from chain after: campaign 3 `Cancelled`, ticket #0 `Refunded`, no `Active` ticket left.
+
+### Campaign 1 (state `Open`, close time 11 h in the past) - not a purchase bug
+
+| Item | Value |
+|---|---|
+| Campaign | [`6kKKygfjE9fd91grKMX9ydyj27c7JYcHMGUqWhBBPbEh`](https://explorer.solana.com/address/6kKKygfjE9fd91grKMX9ydyj27c7JYcHMGUqWhBBPbEh?cluster=devnet) |
+| State / close | `Open`, close_ts 2026-10-03T00:51:53Z, 1 ticket sold |
+
+`Open` and "past `close_ts`" are both true at once, and both halves are handled by design:
+
+- **The program refuses the purchase.** `buy_ticket` starts with `require!(clock.unix_timestamp <
+  camp.close_ts, E::SalesClosed)`, so a player cannot buy into an expired campaign - the chain is
+  the guard, not the UI.
+- **The app refuses to show it.** `fetchCampaigns` returns campaigns that are `Open` *or* have
+  tickets, and both the lobby and the draw card filter on `state === "Open" && closeTs * 1000 >
+  Date.now()`, so an expired-open campaign is not offered as playable and cannot be reached by the
+  buy flow. `ERROR_COPY.SalesClosed` covers it if one slips through.
+- **It is not stuck money.** `commit_draw` only needs `Open` + `now >= close_ts` + at least one
+  ticket, all of which hold, so campaign 1 can still be committed and settled normally whenever an
+  oracle answers.
+
+So: **no bug, no fix, nothing to change in the program or the app.** `Open` is the account's draw
+state, not a sales-open flag, and it is deliberately kept so the campaign stays drawable after
+sales close.
+
+**Named follow-up, cosmetic, not fixed here.** The draw detail page (`app/src/pages.tsx`, the
+`c.state === "Open"` branch of `Results`) renders `Sales close in` plus a countdown for any
+`Open` campaign, so a *directly linked* expired campaign shows a negative countdown and "The draw
+happens after sales close." Nothing is buyable from there, but it reads as though it were. It is a
+one-line fix (reuse the same `state === "Open" && closeTs > now` predicate the lobby uses) and was
+left out because nothing about it can take or hold a player's money.
 
 ### Campaign 1 (open, for players)
 
@@ -443,12 +594,14 @@ This purchase was driven from the browser: connect -> pick numbers -> pay, again
 | Campaign 3 commit_draw tx (second live oracle) | [`tTeJWhCNqervf6vXWjrj82o3JenvuTUYRvRYbZABtHqCUTG7TXhwwDGUYxNMSVEJp8WXXi1WBuQfCGREbUfAXEr`](https://explorer.solana.com/tx/tTeJWhCNqervf6vXWjrj82o3JenvuTUYRvRYbZABtHqCUTG7TXhwwDGUYxNMSVEJp8WXXi1WBuQfCGREbUfAXEr?cluster=devnet), randomness `2vCjqRLqUYLPDm25Hcaf3fRv5o5YGDe56ff5EeG3ik3a` |
 | Oracle reveal (`randomness_reveal`) | _never arrived: see "Randomness operations" below_ |
 | settle_draw on devnet | _not reached: needs the oracle reveal; covered by the LiteSVM suite instead_ |
+| cancel_campaign tx (campaign 3, after the timeout) | [`2PVuRe2S83afT4FkaXw3ChYVWkZdQEZMkCqAmLxzGQtsEQAuhJrZNbmzvCnfCB8QHKSZYL3fbEhiP2f2rcumEsVg`](https://explorer.solana.com/tx/2PVuRe2S83afT4FkaXw3ChYVWkZdQEZMkCqAmLxzGQtsEQAuhJrZNbmzvCnfCB8QHKSZYL3fbEhiP2f2rcumEsVg?cluster=devnet) (`node ops/cancel-refund.mjs --id 3`) |
+| refund_ticket tx (campaign 3, ticket `HhgJfrvTUVxRFwug6MwpgWJgV1H9byGpxYwgQmDGpTCH`) | [`2pykChR8m8MPKCD4WqmQXLvaco3rt4jcUuC7H4qrxqjJRw3fxJtt8c4Z8iFw6nUbcyb7NoGRC1RS2dw2wYfmf7v2`](https://explorer.solana.com/tx/2pykChR8m8MPKCD4WqmQXLvaco3rt4jcUuC7H4qrxqjJRw3fxJtt8c4Z8iFw6nUbcyb7NoGRC1RS2dw2wYfmf7v2?cluster=devnet) - buyer +0.099995 SOL, full write-up in "Campaign 3 (was stranded)" above |
 | cancel_campaign tx (campaign 2, after the timeout) | [`2H4hzq8u4pR6hVM6CnWEVqUtjAiPPeVrUUdqb5uiF8neJXkHKPpGXDQceXvFNa54k7DoWqa46pvBmWJuUJtRZMTx`](https://explorer.solana.com/tx/2H4hzq8u4pR6hVM6CnWEVqUtjAiPPeVrUUdqb5uiF8neJXkHKPpGXDQceXvFNa54k7DoWqa46pvBmWJuUJtRZMTx?cluster=devnet) |
 | refund_ticket tx (campaign 2, ticket `9N2LtqdDkUksWPGdotDaJbKSken2Kid3JfkShyk7YdH`) | [`5FT6CDsE5FqTa3pRLvdqvcsEFFu2v713Ueg25awdXbMs8d64DnGZHRquN5FwpsyAzTMNg4npC27FXPZrcWGfgCqB`](https://explorer.solana.com/tx/5FT6CDsE5FqTa3pRLvdqvcsEFFu2v713Ueg25awdXbMs8d64DnGZHRquN5FwpsyAzTMNg4npC27FXPZrcWGfgCqB?cluster=devnet) |
 
 **What actually happened to draw 2, end to end.** The commit landed and `commit_draw` accepted it, but the oracle never revealed: `reveal_slot` stayed `0` and the value stayed all-zero for the whole ~5.5 h the draw sat committed. When `REVEAL_TIMEOUT_SECS` (1 h after `committed_at`) elapsed, anyone could - and did - call `cancel_campaign`, then `refund_ticket` themselves. Result read back from chain afterwards: campaign state `Cancelled`, ticket status `Refunded`, vault drained to `0`, and the buyer's wallet up by **0.099985 SOL** (the 0.1 SOL ticket price less transaction fees). That is the honest outcome: a draw nobody could finish cost the buyer nothing, and the timeout path is proven on-chain rather than only in tests.
 
-Campaign 3 is committed the same way against a second live oracle (`6zNYHErDrEwFJnVESwwMBvJE8tp2AUNypnNWviVHLefz`) and is also sitting unrevealed; it resolves the same way whenever anyone calls `cancel_campaign` after its timeout.
+Campaign 3 was committed the same way against a second live oracle (`6zNYHErDrEwFJnVESwwMBvJE8tp2AUNypnNWviVHLefz`) and sat unrevealed until 2026-10-03T11:59Z, when `node ops/cancel-refund.mjs --id 3` cancelled it and refunded its one buyer. Its randomness account has since been re-seeded by a later commit, so settlement was no longer possible even if an oracle had answered - the timeout path was the only outcome, and it is now proven on-chain for a second campaign. See "Campaign 3 (was stranded)" above.
 
 #### Randomness operations (what it actually takes)
 

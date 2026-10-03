@@ -11,13 +11,24 @@
 # Duration is always 'auto': 6/10/14 hours rotating by wall-clock slot, so closes stagger.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# The launchd plist hardcodes ROOT, so point it at a durable checkout
+# (CRYPTOBALL_ROOT=...) rather than a disposable worktree: a job whose ROOT is a returned
+# worktree keeps firing a path that no longer exists.
+ROOT="${CRYPTOBALL_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 LABEL="site.cryptoball.open-game"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 LOG_DIR="$ROOT/ops/log"
 PRICE="${SCHEDULE_PRICE:-0.1}"
 CAP="${SCHEDULE_CAP:-1000}"
-NODE="$(command -v node)"
+# launchd starts jobs with PATH=/usr/bin:/bin:/usr/sbin:/sbin, so `command -v node` finds nothing and
+# `set -e` kills the tick before it sends anything. Resolve node here or the job loads and never runs.
+NODE="${SCHEDULE_NODE:-$(command -v node || true)}"
+if [ -z "$NODE" ]; then
+  for c in /opt/homebrew/bin/node /usr/local/bin/node "$HOME/.volta/bin/node"; do
+    [ -x "$c" ] && NODE="$c" && break
+  done
+fi
+[ -n "$NODE" ] || { echo "schedule: no node found on PATH or in the usual prefixes - set SCHEDULE_NODE=/path/to/node" >&2; exit 1; }
 
 run_tick() {
   mkdir -p "$LOG_DIR"

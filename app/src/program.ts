@@ -96,7 +96,10 @@ export const isFundingError = (e: unknown) =>
 /** The one sentence an unfunded wallet gets instead of raw RPC simulation text. */
 export const FUNDING_ERROR = "This wallet does not have enough devnet SOL yet. Get free devnet SOL from the faucet, then try again.";
 const CORE_ID = new PublicKey("CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d");
-const CAMPAIGN_IDS = [1];
+// Campaign ids the app shows, in the order they were opened. Ops opens new ids on the rolling
+// schedule (ops/schedule.sh), so this list has to be bumped and the site redeployed for each new
+// campaign to be visible. See the follow-up in the README: discovering ids from the chain instead.
+const CAMPAIGN_IDS = [1, 2, 3, 4, 5, 6, 7, 8];
 const connection = new Connection(DEVNET_RPC, "confirmed");
 
 const DISCRIMINATORS = {
