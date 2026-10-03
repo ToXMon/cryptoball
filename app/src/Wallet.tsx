@@ -20,7 +20,7 @@ export interface WalletBalance {
   address?: string;
   balance?: bigint;
   unreadable: boolean;
-  /** A read is in flight: nothing has landed yet, so the surfaces must claim nothing and the re-check button waits. */
+  /** A read is in flight: a wallet with nothing read yet claims nothing, and a re-read keeps the landing it already holds until the newest one replaces it. */
   reading: boolean;
   read: () => void;
 }
@@ -62,8 +62,8 @@ export function WalletChip() {
  * checkout card read the same value of the same wallet instead of racing two `getBalance` calls that can disagree. The
  * read is ordered by request, so the newest one wins however late an older one lands; a reading belongs to the address it
  * was read for, so a read still in flight for the wallet the user just switched away from never renders next to the new
- * one; `reading` says a read has not landed yet, and `read` starts another (a failed RPC is not the same as a zero
- * balance, so the surfaces hold their claim back until a read comes back). `funding` turns this into what a card shows.
+ * one; `reading` says the newest read has not come back, and `read` starts another (a failed RPC is not the same as a zero
+ * balance, so a wallet with nothing read yet claims nothing at all). `funding` turns this into what a card shows.
  */
 export function useBalance(address?: string): WalletBalance {
   const [st, setSt] = useState<{ address: string; balance?: bigint; unreadable: boolean }>();

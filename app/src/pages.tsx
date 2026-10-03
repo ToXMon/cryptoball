@@ -196,7 +196,7 @@ function Checkout({ c, cart, total, fee, onBought }: { c: Campaign; cart: Carton
       </dl>
       <p className="cb-warn">Devnet play money. No real funds.</p>
       {done.length > 0 && <p role="status">{done.length} ticket{done.length > 1 ? "s were" : " was"} bought before the error and removed from your cart. <a className="cb-link" href={`#/ticket/${c.id}/${done[0].index}`}>View ticket</a></p>}
-      <button type="button" className="cb-btn cb-btn--primary cb-btn--block" disabled={gate.kind !== "pay"} onClick={pay}>
+      <button type="button" className="cb-btn cb-btn--primary cb-btn--block" disabled={busy || gate.kind === "wait"} onClick={pay}>
         {busy ? `Confirming ${progress + 1} of ${cart.length}…` : buyer ? `Pay ${sol(total)}` : "Connect wallet to pay"}
       </button>
       {err != null && <Err e={err} />}
