@@ -95,6 +95,90 @@ assert.match(fundingCopy(funding(funded, false, short))!.note, new RegExp(`One c
 assert.equal(fundingCopy(funding(1n, false)), undefined); // a wallet that holds something needs no helper
 assert.equal(fundingCopy(funding(250_000_000n, false, fundingNeeded(100_000_000n, 1))), undefined);
 
+// The one shared read every one of those claims is made from, held against a scripted RPC: what a read may claim, whose
+// answer wins, and what a failed read does until it is asked again.
+const wallet = "So11111111111111111111111111111111111111112";
+const collector = () => {
+  const states: BalanceState[] = [];
+  return { states, publish: (patch: Partial<BalanceState>) => states.push({ ...(states[states.length - 1] ?? {}), ...patch } as BalanceState) };
+};
+const scripted = (answers: (bigint | Error)[]) => {
+  const { states, publish } = collector();
+  const asked: string[] = [];
+  const { read } = createBalanceRead(publish, async (address) => {
+    asked.push(address);
+    const next = answers.shift();
+    if (next === undefined) throw new Error("the scripted read ran out of answers");
+    if (next instanceof Error) throw next;
+    return next;
+  });
+  return { read, asked, states, state: () => states[states.length - 1] };
+};
+// The newest read wins however late an older one lands, and an answer for the wallet the user just switched away from does
+// not land on top of the new wallet's answer.
+{
+  const late: ((lamports: bigint) => void)[] = [];
+  const { states, publish } = collector();
+  const { read } = createBalanceRead(publish, () => new Promise<bigint>((res) => late.push(res)));
+  const left = read("a-wallet-the-user-left");
+  const newest = read(wallet);
+  late[1](250_000_000n); // the newest read answers
+  await newest;
+  late[0](1n); // the older one lands late, and is stale from the moment the newer one was asked for
+  await left;
+  assert.deepEqual(states[states.length - 1], { landing: { address: wallet, balance: 250_000_000n, unreadable: false }, reading: false });
+}
+// A read that failed claims nothing about the wallet, never "0 SOL", and the card's "Check balance again" is a plain
+// re-read of the same address, which recovers as soon as the RPC does.
+{
+  const flaky = scripted([new Error("429 Too Many Requests"), 250_000_000n]);
+  await flaky.read(wallet);
+  const failed = flaky.state().landing!;
+  assert.deepEqual([failed.address, failed.balance, failed.unreadable], [wallet, undefined, true]);
+  assert.equal(flaky.state().reading, false);
+  assert.equal(fundingCopy(funding(failed.balance, failed.unreadable, fundingNeeded(100_000_000n, 1)))!.heading, FUNDING_COPY.unreadHeading);
+  await flaky.read(wallet);
+  assert.deepEqual(flaky.asked, [wallet, wallet]);
+  assert.deepEqual(flaky.state(), { landing: { address: wallet, balance: 250_000_000n, unreadable: false }, reading: false });
+}
+// A re-read does not blank the claim the wallet already earned: the surfaces hold it, with the button waiting on it, until
+// the newest read answers.
+{
+  const held = scripted([250_000_000n, 200_000_000n]);
+  await held.read(wallet);
+  const inFlight = held.read(wallet);
+  assert.deepEqual(held.state(), { landing: { address: wallet, balance: 250_000_000n, unreadable: false }, reading: true });
+  await inFlight;
+  assert.deepEqual(held.state(), { landing: { address: wallet, balance: 200_000_000n, unreadable: false }, reading: false });
+}
+// Paying spends from the wallet, so the read taken after a purchase is the one the next carton has to be judged against: a
+// wallet that could just cover an order stops being able to, and the funding helper comes back saying so rather than the
+// page insisting the wallet is fine.
+{
+  const needed = fundingNeeded(100_000_000n, 1);
+  const spent = scripted([200_000_000n, 96_200_000n]);
+  await spent.read(wallet);
+  const before = spent.state().landing!;
+  assert.equal(fundingCopy(funding(before.balance, before.unreadable, needed)), undefined); // before paying: nothing to fund, so no helper
+  await spent.read(wallet); // what paying takes
+  const after = spent.state().landing!;
+  assert.equal(after.balance, 96_200_000n);
+  assert.deepEqual(fundingCopy(funding(after.balance, after.unreadable, needed)), { heading: FUNDING_COPY.heading, note: FUNDING_COPY.short(96_200_000n, needed) });
+  // The wallet dialog reads the same refreshed read, so a wallet drained by paying is offered the faucet there too.
+  const drained = scripted([104_000_000n, 0n]);
+  await drained.read(wallet);
+  await drained.read(wallet);
+  assert.deepEqual(fundingCopy(funding(drained.state().landing!.balance, false)), { heading: FUNDING_COPY.heading, note: FUNDING_COPY.empty });
+}
+// A disconnected wallet has no balance to claim, and no read to wait for.
+{
+  const gone = scripted([]);
+  await gone.read(wallet);
+  await gone.read();
+  assert.deepEqual(gone.asked, [wallet]);
+  assert.deepEqual([gone.state().landing, gone.state().reading], [undefined, false]);
+}
+
 // Passkey derivation known-answer (research report 1.3): a fixed PRF output must keep giving this address,
 // or a silent dependency bump moved the keys.
 const known = accountFromPrfOutput(new Uint8Array(32).fill(7));

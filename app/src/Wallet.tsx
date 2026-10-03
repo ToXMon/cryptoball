@@ -3,7 +3,8 @@ import { ConnectionProvider, WalletProvider, useWallet } from "@solana/wallet-ad
 import { WalletReadyState } from "@solana/wallet-adapter-base";
 import { short, sol } from "./lib";
 import { Faucet } from "./components";
-import { funding, getBalance } from "./program";
+import { createBalanceRead, type BalanceState } from "./balance";
+import { funding } from "./program";
 import { passkeyAddress, passkeyErrorText, registerPasskeyWallet, revealRecoveryPhrase } from "./passkeyWallet";
 import { DEVNET_RPC } from "./program";
 
@@ -59,32 +60,20 @@ export function WalletChip() {
 
 /**
  * The one devnet balance read behind every funding surface: it lives above them all, so the wallet dialog card and the
- * checkout card read the same value of the same wallet instead of racing two `getBalance` calls that can disagree. The
- * read is ordered by request, so the newest one wins however late an older one lands; a reading belongs to the address it
- * was read for, so a read still in flight for the wallet the user just switched away from never renders next to the new
- * one; `reading` says the newest read has not come back, and `read` starts another (a failed RPC is not the same as a zero
- * balance, so a wallet with nothing read yet claims nothing at all). `funding` turns this into what a card shows.
+ * checkout card read the same value of the same wallet instead of racing two `getBalance` calls that can disagree.
+ * `createBalanceRead` (balance.ts) owns what a read may claim and in what order; this binds it to one address, reads
+ * whenever that address changes, and hands out the landing only while it is the landing of the address in hand, so a read
+ * for the wallet the user just switched away from can never speak for the new one. `funding` turns all that into what a
+ * card shows.
  */
 export function useBalance(address?: string): WalletBalance {
-  const [st, setSt] = useState<{ address: string; balance?: bigint; unreadable: boolean }>();
-  const [reading, setReading] = useState(false);
-  const newest = useRef(0);
-  const read = useCallback(async (): Promise<void> => {
-    const mine = ++newest.current; // an older read that lands from here on is stale, whoever it was for
-    if (!address) { setSt(undefined); setReading(false); return; }
-    setReading(true);
-    try {
-      const balance = await getBalance(address);
-      if (mine === newest.current) setSt({ address, balance, unreadable: false });
-    } catch {
-      if (mine === newest.current) setSt({ address, unreadable: true });
-    } finally {
-      if (mine === newest.current) setReading(false);
-    }
-  }, [address]);
-  useEffect(() => { void read(); }, [read]);
-  const held = st?.address === address ? st : undefined;
-  return { address, balance: held?.balance, unreadable: held?.unreadable ?? false, reading, read };
+  const [st, setSt] = useState<BalanceState>({ reading: false });
+  const publish = useCallback((patch: Partial<BalanceState>) => setSt((s) => ({ ...s, ...patch })), []);
+  const [reader] = useState(() => createBalanceRead(publish));
+  const read = useCallback(() => { void reader.read(address); }, [reader, address]);
+  useEffect(() => { read(); }, [read]);
+  const held = st.landing?.address === address ? st.landing : undefined;
+  return { address, balance: held?.balance, unreadable: held?.unreadable ?? false, reading: st.reading, read };
 }
 
 /** Above both funding surfaces, so neither of them reads the balance itself. */

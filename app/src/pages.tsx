@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { Balls, Countdown, Faucet, Stage, TicketFace, lazyScene } from "./components";
 import { dateTime, explorer, go, num, pad, quickPick, short, sol, useAsync } from "./lib";
@@ -167,6 +167,11 @@ function Checkout({ c, cart, total, fee, onBought }: { c: Campaign; cart: Carton
   const fund = funding(balance, unreadable, fundingNeeded(c.priceLamports, cart.length));
   const gate = payGate({ buyer, busy, cartons: cart.length, fund });
 
+  // The shared read is only worth a claim while it is current, and what it is judged against changes as the cart does, so
+  // it is re-read whenever this checkout mounts (coming back into the draw) and whenever the cart total changes. No
+  // polling: these transitions, paying below, and the card's own re-check are the whole of it.
+  useEffect(() => { read(); }, [read, cart.length]);
+
   // R-82: the app only ever talks to the devnet RPC (Wallets.tsx), so the cluster is fixed; the adapter has no cluster
   // readout, so the wallet-side check lives in the real program adapter when signing.
   async function pay() {
@@ -184,7 +189,13 @@ function Checkout({ c, cart, total, fee, onBought }: { c: Campaign; cart: Carton
     } catch (e) {
       setErr(e);
       if (bought.length) { sessionStorage.setItem("cb-last", JSON.stringify(bought)); setDone(bought); onBought(bought.length); }
-    } finally { setBusy(false); }
+    } finally {
+      // The chain has had its say about what this wallet holds: paying spends from it, and a FUNDING_ERROR says the read
+      // above was wrong about it. Either way the read goes stale here, so it is taken again — that is what puts the
+      // faucet helper back on the page when the error tells the friend to use it.
+      read();
+      setBusy(false);
+    }
   }
 
   return (
@@ -294,6 +305,7 @@ export function Results({ id }: { id: number }) {
 
 function CancelledRefund({ c }: { c: Campaign }) {
   const { publicKey, sendTransaction } = useWallet();
+  const { read } = useWalletBalance();
   const [msg, setMsg] = useState<string>();
   const mine = useAsync(() => (publicKey ? fetchTickets(publicKey.toBase58()) : Promise.resolve([])), [publicKey]);
   const list = (mine.data ?? []).filter((t) => t.campaign === c.id && t.status === "Active");
@@ -303,7 +315,7 @@ function CancelledRefund({ c }: { c: Campaign }) {
       {list.map((t) => (
         <li key={t.index} className="cb-cartline">
           <span>Ticket #{t.index}</span>
-          <button type="button" className="cb-btn cb-btn--ghost" onClick={() => refundTicket(c.id, t.index, { publicKey, sendTransaction }).then(() => setMsg("Refunded."), (e) => setMsg(describeError(e)))}>Refund</button>
+          <button type="button" className="cb-btn cb-btn--ghost" onClick={() => refundTicket(c.id, t.index, { publicKey, sendTransaction }).then(() => { read(); setMsg("Refunded."); }, (e) => setMsg(describeError(e)))}>Refund</button>
         </li>
       ))}
       {msg && <li aria-live="polite">{msg}</li>}
