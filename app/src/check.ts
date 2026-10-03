@@ -151,9 +151,9 @@ const scripted = (answers: (bigint | Error)[]) => {
   await inFlight;
   assert.deepEqual(held.state(), { landing: { address: wallet, balance: 200_000_000n, unreadable: false }, reading: false });
 }
-// Paying spends from the wallet, so the read taken after a purchase is the one the next carton has to be judged against: a
-// wallet that could just cover an order stops being able to, and the funding helper comes back saying so rather than the
-// page insisting the wallet is fine.
+// The shared read is judged against the live cart every time it lands, so a wallet whose newest read cannot cover the order
+// is offered the faucet again, and one whose newest read covers it is offered nothing. When the page asks for that read is
+// its own wiring, which nothing here runs.
 {
   const needed = fundingNeeded(100_000_000n, 1);
   const spent = scripted([200_000_000n, 96_200_000n]);
