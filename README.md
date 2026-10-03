@@ -53,8 +53,8 @@ ledger with no creation path at all. Regression tests cover it (design.md T20).
 
 *Residual, stated rather than hidden:* a lamport transfer to the ledger PDA in the window before the
 admin's first `initialize_faucet` would block that one-time init. The remedy is a seed bump via upgrade.
-Once initialised the account is untouchable - the system program refuses to transfer into a
-program-owned account.
+Once initialised the ledger's data is untouchable: a lamport transfer to the PDA changes only lamports,
+because only the program can write `dispensed` or `pool_lamports`. Proven on devnet below.
 
 ### `claim_sol` wiring (UI lane)
 
@@ -87,8 +87,50 @@ the gas top-up before showing the button, or send it from a warm wallet.
 
 | Account | Seeds | Address |
 |---|---|---|
-| `faucet` | `["faucet-v2"]` | derived at `initialize_faucet` time (see receipts) |
+| `faucet` | `["faucet-v2"]` | [`7izC4mjxqEskF2XxVugBXSuz5Y7hUG7ENRX9YCkhpXHn`](https://explorer.solana.com/address/7izC4mjxqEskF2XxVugBXSuz5Y7hUG7ENRX9YCkhpXHn?cluster=devnet) |
 | `faucet-vault` | `["faucet-vault"]` | `BgtBRka9TEQa5revD2D1A46mG9rppXRqHF5F6h3tNyt` |
+
+
+### Faucet receipts (devnet, 2026-10-03)
+
+Deploy wallet `9ACfknzt...` balance: **6.54267132** SOL before this work, **5.395798880** SOL after. The
+difference is the 1.0 SOL vault top-up below, the two dust transfers to the test wallets, the claim fees
+and the programdata top-up for the new build (2.591435 SOL, up from 2.50133612).
+
+| Item | Value |
+|---|---|
+| Program upgrade tx (admin-created ledger + refill) | [`uALRH5rGrTLtZaNNNe81rCLVer8KXFhgArB3AzXRktxq41yyff7F5fYWHkFiJpJ5R2KXnSfAJ2oLZ3iWvzHd6ZD`](https://explorer.solana.com/tx/uALRH5rGrTLtZaNNNe81rCLVer8KXFhgArB3AzXRktxq41yyff7F5fYWHkFiJpJ5R2KXnSfAJ2oLZ3iWvzHd6ZD?cluster=devnet) |
+| `initialize_faucet` tx | [`5zYF2Si9HUYmAgAtoaJtyrzgTVy5wjEpi5vNnXJp59Sm6CUkcw3VAk8DGz6JSuujTJEu6Au95md4fs3Jr5zjxoQ4`](https://explorer.solana.com/tx/5zYF2Si9HUYmAgAtoaJtyrzgTVy5wjEpi5vNnXJp59Sm6CUkcw3VAk8DGz6JSuujTJEu6Au95md4fs3Jr5zjxoQ4?cluster=devnet) |
+| Ledger after init | `dispensed = 330000000` (carried forward from the retired v1 ledger), `pool = 1000000000` |
+| Vault after the run | `340000000` lamports (1.0 funded, 0.33 spent by the v1 proof, 0.33 by this one) |
+
+Squat attempt, after the ledger was created - the published attack. Transfer tx
+[`2vegSF48JTBjyFub3Yv9pFc7bieHjGTtocZSpf6SpgN4ZBcRqTMa2vM2hbiYj337f7eqehumXP5DDSYwD89fjthW`](https://explorer.solana.com/tx/2vegSF48JTBjyFub3Yv9pFc7bieHjGTtocZSpf6SpgN4ZBcRqTMa2vM2hbiYj337f7eqehumXP5DDSYwD89fjthW?cluster=devnet)
+landed, and **the ledger's bytes were byte-for-byte unchanged** - `dispensed` and `pool` untouched,
+because only the program can write them.
+
+Claims from a brand-new address, `3kQuDPPfW9ubhwUCAJ3f2SVWCSvya3LiCrTfetpjdGDG`, dusted with 0.02 SOL of
+gas from the deploy wallet (the devnet airdrop was rate limited):
+
+| Claim | Result | Tx |
+|---|---|---|
+| 0.11 SOL, fresh wallet | **succeeds** (0.02 -> 0.129100920 SOL) | [`3nFTqzVNybVsVUdgi3vYhnr1oY81BFVehDYUVtuaNCujYdnuqMoAnQwmA6bBnDpJeUf4H2dJAPbZGN2Z5kgDFd53`](https://explorer.solana.com/tx/3nFTqzVNybVsVUdgi3vYhnr1oY81BFVehDYUVtuaNCujYdnuqMoAnQwmA6bBnDpJeUf4H2dJAPbZGN2Z5kgDFd53?cluster=devnet) |
+| 0.5 SOL, over the per-claim maximum | **rejected**, `ClaimTooLarge` (6019) | [`4yiEd1nqtXtu9JFpQmQoJESEtbUj3kjDWohVhzWg52w7gHh5XXZ8gMdvRhjFqfb7WEUYRP1HWp8VPqBLpbfULCTo`](https://explorer.solana.com/tx/4yiEd1nqtXtu9JFpQmQoJESEtbUj3kjDWohVhzWg52w7gHh5XXZ8gMdvRhjFqfb7WEUYRP1HWp8VPqBLpbfULCTo?cluster=devnet) |
+| 0.11 SOL, second | succeeds | [`4MVGaCNU1wn5Xhu9Hymp7JBt2n3MJSaDX2iKBqmKLf8uKTzwxG2UA6PM5pUX4BSHXokiPXdcFvgnum92LcNNwzXL`](https://explorer.solana.com/tx/4MVGaCNU1wn5Xhu9Hymp7JBt2n3MJSaDX2iKBqmKLf8uKTzwxG2UA6PM5pUX4BSHXokiPXdcFvgnum92LcNNwzXL?cluster=devnet) |
+| 0.11 SOL, third (lifetime 0.33) | succeeds | [`2doHX1iVB2Taakx5fLuprJY6NG9H4S4LkPfNccqY8L835acXTUmcEcWthL3KuNAyXvndmybkBYLQZvv3Gv8tWHJF`](https://explorer.solana.com/tx/2doHX1iVB2Taakx5fLuprJY6NG9H4S4LkPfNccqY8L835acXTUmcEcWthL3KuNAyXvndmybkBYLQZvv3Gv8tWHJF?cluster=devnet) |
+| 0.01 SOL, over the lifetime ceiling | **rejected**, `ClaimLifetimeCap` (6020) | [`3syFCESbnPnVKToVMYmbu1BatMd54YonGLAs4qwbJvDQvZdpxcQxSX9pKnQFEwXSiVCL4buQUF3oddTrbcqnkMgR`](https://explorer.solana.com/tx/3syFCESbnPnVKToVMYmbu1BatMd54YonGLAs4qwbJvDQvZdpxcQxSX9pKnQFEwXSiVCL4buQUF3oddTrbcqnkMgR?cluster=devnet) |
+
+Claim delta check: 110,000,000 - 109,100,920 = 899,080 lamports = 894,080 (rent of the 48-byte
+`claim_record`, the cluster's own `getMinimumBalanceForRentExemption`) + 5,000 tx fee. The vault only
+existed from a prior run, so this claim paid no second account's rent.
+
+**Ticket money untouched.** Campaign 1's vault
+[`7iSvSBMT7fzk1Rei32AEaVpmhry2TvCQFEG6H8kdyJU5`](https://explorer.solana.com/address/7iSvSBMT7fzk1Rei32AEaVpmhry2TvCQFEG6H8kdyJU5?cluster=devnet)
+read `100000000` lamports immediately before the five claims and `100000000` immediately after.
+
+Superseded history: the first upgrade (`5SSnfgMjMPHKP2dBjfL9U96KxkvHgPhYmbz26RZiQUKR3EL4PpFbYGGjT6ndtuAxECXSZrZ3efZ5Fy4G63tUL8xM`)
+added `claim_sol` with the v1 ledger and the griefable `init_if_needed` path. It was live for about
+three hours and is replaced by the upgrade above.
 
 ### Refilling the faucet (two steps, no redeploy)
 
@@ -114,6 +156,49 @@ claim per wallet", which the code honours as the per-claim drip; the 0.33 lifeti
 top as a Sybil mitigation and approved as a sensible default. Narrowing it to 0.11 would raise the
 usable wallets per 1.0 SOL pool from ~3 to ~9 at one ticket each. Carried to the captain as an explicit
 question; the code keeps 0.33 until that answer lands.
+#### Deploying to devnet: what actually happened
+
+Operational history, because the obvious command does not work and repeating it wastes hours.
+
+`solana program deploy` failed twice with **`Error: Data writes to account failed: Custom error: Max
+retries exceeded`** (after ~35 and ~60 minutes). Not the program's fault:
+
+- The deploy wallet needs about **2.75 SOL for a 509 KB build** at once, because the loader stages the
+  binary in a *buffer* account holding rent for its whole size (2.591394360 SOL here) until the upgrade
+  lands. That rent comes back on success and is **stranded on failure** - two orphan buffers,
+  2.50133612 SOL each, had to be reclaimed with `solana program close <buffer> --keypair <dev wallet>`
+  (the buffer's authority is the deploy wallet, so no separate key is needed). Nothing was left stuck.
+- `api.devnet.solana.com` rate limits by IP. The CLI's buffer writes plus signature-status polling trip
+  the limit, the writes start failing, and it exhausts its retries. It is also load balanced, so a
+  blockhash from one node frequently fails preflight on another ("Blockhash not found").
+- A dedicated QuickNode devnet endpoint fixes the rate limiting but **caps RPC request bodies**: both
+  `--use-rpc` and `--use-tpu-client` fail with `413 Request Entity Too Large` on the write path *and* on
+  the final upgrade transaction. A paid endpoint is necessary but not sufficient on its own.
+
+**What works:** `scripts/write-buffer.js` creates the loader buffer and fills it itself - 850 bytes per
+transaction, two trivial loader instructions (`InitializeBuffer`, `Write`), a configurable gap between
+writes. It asks the cluster for the rent-exempt minimum via `getMinimumBalanceForRentExemption` rather
+than hardcoding a lamports-per-byte rate, because that rate has already drifted once on this cluster and
+a stale constant silently under-funds the buffer. 601 chunks took **~38 min against QuickNode**
+(`GAP_MS=250`) versus ~46 min against the public endpoint at `GAP_MS=2000`. Then:
+
+```
+export RPC=<your devnet https endpoint>
+RPC=$RPC GAP_MS=250 node scripts/write-buffer.js target/deploy/cryptoball.so /tmp/faucet-buffer.json
+solana program deploy target/deploy/cryptoball.so \
+  --program-id GtdcPM3LTX8G8pB1bVW1jWfuxTj3kZmD3axt4Q7whBpC \
+  --keypair ~/.tape/cryptoball-deploy.json --buffer /tmp/faucet-buffer.json --max-len 509952
+```
+
+The CLI finds the buffer already full, so it writes nothing and only performs the upgrade. Two gotchas
+worth knowing: QuickNode 413s on the final upgrade tx too (do that single step against
+`api.devnet.solana.com`), and a stale blockhash there fails with `Program was deployed in this block
+already` - just retry.
+
+Budget **2.75 SOL** per upgrade and keep `scripts/write-buffer.js` in your back pocket. The floor is
+observable: the programdata account must stay rent-exempt for the new size (2.591435 SOL at 509,952
+bytes). `scripts/faucet-proof.js` regenerates the claim receipts above.
+
 
 ## Layout
 
