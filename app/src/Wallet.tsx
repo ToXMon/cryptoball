@@ -63,8 +63,9 @@ export function WalletChip() {
  * checkout card read the same value of the same wallet instead of racing two `getBalance` calls that can disagree.
  * `createBalanceRead` (balance.ts) owns what a read may claim and in what order; this binds it to one address, reads
  * whenever that address changes, and hands out the landing only while it is the landing of the address in hand, so a read
- * for the wallet the user just switched away from can never speak for the new one. `funding` turns all that into what a
- * card shows.
+ * for the wallet the user just switched away from can never speak for the new one. `read` is rebuilt with the address and
+ * this effect is the one that fires on a wallet switch, so a surface that reads for a reason of its own keys those to that
+ * reason and not to `read`, which would send the same read twice. `funding` turns all that into what a card shows.
  */
 export function useBalance(address?: string): WalletBalance {
   const [st, setSt] = useState<BalanceState>({ reading: false });

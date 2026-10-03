@@ -80,12 +80,13 @@ export const funding = (balance: bigint | undefined, unreadable: boolean, needed
 /**
  * What a checkout does with the order, and the whole of what it decides before it sends: no wallet yet means open the
  * wallet dialog, a payment already running or an empty cart means wait, anything else means pay with that same wallet.
- * The funding state is part of the question and no part of the answer: a wallet that could not be read, and a wallet
- * short for the order, both go to the chain, which rejects the ones that cannot pay and comes back as `FUNDING_ERROR`
- * with the faucet in it. So a failed or slow read can never turn the funding card into a payment that will not start.
+ * The funding state is deliberately not a question here — the question has nowhere to put one — so a wallet that could not
+ * be read, and a wallet short for the order, both go to the chain, which rejects the ones that cannot pay and comes back
+ * as `FUNDING_ERROR` with the faucet in it. So a failed or slow read can never turn the funding card into a payment that
+ * will not start.
  */
 export type PayGate = { kind: "connect" } | { kind: "wait" } | { kind: "pay"; buyer: string };
-export const payGate = (q: { buyer?: string; busy: boolean; cartons: number; fund: Funding }): PayGate =>
+export const payGate = (q: { buyer?: string; busy: boolean; cartons: number }): PayGate =>
   !q.buyer ? { kind: "connect" } : q.busy || q.cartons < 1 ? { kind: "wait" } : { kind: "pay", buyer: q.buyer };
 
 /** Raw RPC failures that really mean "this wallet has no money" (an unfunded devnet wallet). */

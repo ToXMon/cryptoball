@@ -1,6 +1,6 @@
 import { Component, Suspense, lazy, useEffect, useId, useRef, useState, type ComponentType, type LazyExoticComponent, type ReactNode } from "react";
 import { pad, parts, useNow, useReducedMotion, fundingCopy, FUNDING_COPY } from "./lib";
-import { FAUCET_URL, type Funding, type Ticket } from "./program";
+import { FAUCET_URL, describeError, isFundingError, type Funding, type Ticket } from "./program";
 
 export function Ball({ n, bonus, delay = 0, drop }: { n: number; bonus?: boolean; delay?: number; drop?: boolean }) {
   return (
@@ -128,6 +128,23 @@ export function Faucet({ address, fund, recheck }: { address: string; fund: Fund
       </p>
       <p className="cb-fine" aria-live="polite">{status ?? FUNDING_COPY.faucet}</p>
     </section>
+  );
+}
+
+/**
+ * The one surface every error in the app is rendered through. A transaction that failed for want of devnet SOL says so in
+ * plain words and carries the address to fund and the link that funds it, because `FUNDING_ERROR` names the faucet app-wide
+ * and a page must never point at an affordance it is not showing; every other error is the described text. With no address in
+ * hand there is nothing to fund from, so it falls back to the described text like any other.
+ */
+export function Err({ e, address }: { e: unknown; address?: string }) {
+  if (!isFundingError(e) || !address) return <p className="cb-error" role="alert">{describeError(e)}</p>;
+  return (
+    <div className="cb-error" role="alert">
+      <p>{describeError(e)}</p>
+      <p className="cb-num cb-addr">{address}</p>
+      <p><a className="cb-btn cb-btn--primary" href={FAUCET_URL} target="_blank" rel="noreferrer">Open Solana devnet faucet</a></p>
+    </div>
   );
 }
 
