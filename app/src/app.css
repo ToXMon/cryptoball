@@ -93,3 +93,6 @@ a { color: var(--accent); }
 .cb-dialog { background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: var(--r-lg); padding: var(--space-5); width: min(420px, calc(100vw - 32px)); box-shadow: var(--card-shadow); }
 .cb-dialog::backdrop { background: rgba(0, 0, 0, .6); }
 .cb-dialog h2 { margin-top: 0; }
+.cb-funding { margin-top: var(--space-3); }
+.cb-funding h2 { font-size: 18px; margin-bottom: var(--space-2); }
+.cb-funding .cb-addr { margin: var(--space-2) 0; }

@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { Balls, Countdown, Stage, TicketFace, lazyScene } from "./components";
+import { Balls, Countdown, Err, Faucet, Stage, TicketFace, lazyScene } from "./components";
 import { dateTime, explorer, go, num, pad, quickPick, short, sol, useAsync } from "./lib";
-import { buyTicket, describeError, fetchCampaign, fetchCampaigns, fetchTicket, fetchTickets, payout, refundTicket, type Campaign, type Ticket } from "./program";
-import { useWalletDialog } from "./Wallet";
+import { buyTicket, fetchCampaign, fetchCampaigns, fetchTicket, fetchTickets, funding, fundingNeeded, payGate, payout, refundTicket, type Campaign, type Ticket } from "./program";
+import { useWalletBalance, useWalletDialog } from "./Wallet";
 
 // Code-split: three.js only loads when a stage scrolls into view on confirmation / results.
 const TicketScene = lazyScene(() => import("./three/TicketScene"));
@@ -11,7 +11,6 @@ const BallsScene = lazyScene(() => import("./three/BallsScene"));
 
 const MAX_CARTONS = 5;
 const Loading = ({ what }: { what: string }) => <p className="cb-muted" aria-live="polite">Loading {what}…</p>;
-const Err = ({ e }: { e: unknown }) => <p className="cb-error" role="alert">{describeError(e)}</p>;
 
 function Trust() {
   return (
@@ -162,23 +161,41 @@ function Checkout({ c, cart, total, fee, onBought }: { c: Campaign; cart: Carton
   const [progress, setProgress] = useState(0);
   const [done, setDone] = useState<Ticket[]>([]);
   const buyer = publicKey?.toBase58();
+  const { address, balance, unreadable, reading, read } = useWalletBalance();
   const wallet = { publicKey, sendTransaction };
+  const fund = funding(balance, unreadable, fundingNeeded(c.priceLamports, cart.length));
+  const gate = payGate({ buyer, busy, cartons: cart.length });
+
+  // Entering this draw is the one moment here that can leave the shared landing stale, so this asks for one read: the card
+  // judges the landing it holds against the live cart total on every render, so a cart that changes is no reason to read
+  // again — the claim, not the need, is what goes stale. It does not key to `read` either: `read` is rebuilt with the address,
+  // and the read above this one already fires on a wallet switch. No polling: this, paying below, and the card's own re-check.
+  useEffect(() => { read(); }, []);
 
   // R-82: the app only ever talks to the devnet RPC (Wallets.tsx), so the cluster is fixed; the adapter has no cluster
   // readout, so the wallet-side check lives in the real program adapter when signing.
   async function pay() {
-    if (!buyer) return openWallet();
+    if (gate.kind === "connect") return openWallet();
+    if (gate.kind === "wait") return;
+    // The gate is the whole decision, and the balance read is not part of it: this sends the order whatever the card
+    // above said, because the chain is the judge of whether a wallet can pay and answers FUNDING_ERROR if it cannot.
     setBusy(true); setErr(undefined); setDone([]); setProgress(0);
     const bought: Ticket[] = [];
     try {
       // One buy_ticket transaction per carton (design.md section 12, risk 2).
-      for (const k of cart) { bought.push(await buyTicket(buyer, c.id, k.numbers, k.bonus!, wallet)); setProgress(bought.length); }
+      for (const k of cart) { bought.push(await buyTicket(gate.buyer, c.id, k.numbers, k.bonus!, wallet)); setProgress(bought.length); }
       sessionStorage.setItem("cb-last", JSON.stringify(bought));
       go(`ticket/${c.id}/${bought[0].index}`);
     } catch (e) {
       setErr(e);
       if (bought.length) { sessionStorage.setItem("cb-last", JSON.stringify(bought)); setDone(bought); onBought(bought.length); }
-    } finally { setBusy(false); }
+    } finally {
+      // The chain has had its say about what this wallet holds: paying spends from it, and a FUNDING_ERROR says the read
+      // above was wrong about it. Either way the read goes stale here, so it is taken again — that is what puts the
+      // faucet helper back on the page when the error tells the friend to use it.
+      read();
+      setBusy(false);
+    }
   }
 
   return (
@@ -190,10 +207,11 @@ function Checkout({ c, cart, total, fee, onBought }: { c: Campaign; cart: Carton
       </dl>
       <p className="cb-warn">Devnet play money. No real funds.</p>
       {done.length > 0 && <p role="status">{done.length} ticket{done.length > 1 ? "s were" : " was"} bought before the error and removed from your cart. <a className="cb-link" href={`#/ticket/${c.id}/${done[0].index}`}>View ticket</a></p>}
-      <button type="button" className="cb-btn cb-btn--primary cb-btn--block" disabled={busy || (!!buyer && cart.length === 0)} onClick={pay}>
+      <button type="button" className="cb-btn cb-btn--primary cb-btn--block" disabled={busy || gate.kind === "wait"} onClick={pay}>
         {busy ? `Confirming ${progress + 1} of ${cart.length}…` : buyer ? `Pay ${sol(total)}` : "Connect wallet to pay"}
       </button>
       {err != null && <Err e={err} />}
+      {address != null && <Faucet address={address} fund={fund} recheck={{ read, reading }} />}
       {busy && <p className="cb-muted" aria-live="polite">Approve each ticket in your wallet.</p>}
     </div>
   );
@@ -287,19 +305,29 @@ export function Results({ id }: { id: number }) {
 
 function CancelledRefund({ c }: { c: Campaign }) {
   const { publicKey, sendTransaction } = useWallet();
+  const { address, read } = useWalletBalance();
   const [msg, setMsg] = useState<string>();
+  const [err, setErr] = useState<unknown>();
   const mine = useAsync(() => (publicKey ? fetchTickets(publicKey.toBase58()) : Promise.resolve([])), [publicKey]);
   const list = (mine.data ?? []).filter((t) => t.campaign === c.id && t.status === "Active");
   if (!list.length) return <p className="cb-muted">Cancelled draws refund every ticket to its buyer. Connect your wallet to see yours.</p>;
+  // A refund spends from the wallet exactly as a purchase does, so the read is taken again however this lands: what the
+  // chain did is the only thing that settles whether this wallet can still afford anything, and the error below carries the
+  // faucet so a refund that ran out of SOL is actionable on this page, which has no funding card of its own.
+  const refund = (index: number) => refundTicket(c.id, index, { publicKey, sendTransaction }).then(
+    () => { read(); setErr(undefined); setMsg("Refunded."); },
+    (e) => { read(); setMsg(undefined); setErr(e); },
+  );
   return (
     <ul className="cb-list">
       {list.map((t) => (
         <li key={t.index} className="cb-cartline">
           <span>Ticket #{t.index}</span>
-          <button type="button" className="cb-btn cb-btn--ghost" onClick={() => refundTicket(c.id, t.index, { publicKey, sendTransaction }).then(() => setMsg("Refunded."), (e) => setMsg(describeError(e)))}>Refund</button>
+          <button type="button" className="cb-btn cb-btn--ghost" onClick={() => void refund(t.index)}>Refund</button>
         </li>
       ))}
       {msg && <li aria-live="polite">{msg}</li>}
+      {err != null && <li><Err e={err} address={address} /></li>}
     </ul>
   );
 }

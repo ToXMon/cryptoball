@@ -40,6 +40,61 @@ export interface WalletSigner {
 // design - this is a public static site, so the token is a public value; watch the plan's quota.
 export const DEVNET_RPC = "https://hardworking-broken-field.solana-devnet.quiknode.pro/ec3c0ae727818aaaead289ef2e844d4df1411e75/";
 export const PROGRAM_ID = new PublicKey("GtdcPM3LTX8G8pB1bVW1jWfuxTj3kZmD3axt4Q7whBpC");
+
+/** Official Solana devnet faucet. We run no faucet of our own: that is real infrastructure with abuse and rate-limit liability. */
+export const FAUCET_URL = "https://faucet.solana.com";
+/**
+ * What one carton costs on top of its price: the rent-exempt minimum of the ticket account and of the Core asset it
+ * mints, plus the transaction fee, since a checkout sends one transaction per carton. Rounded up (rent is about
+ * 0.0037 SOL of that) so the stated need covers a cart of any size and never lands on zero.
+ */
+const CARTON_COST_LAMPORTS = 4_000_000n; // 0.004 SOL
+
+/** What a checkout actually needs: the ticket price(s) plus that per-carton cost. An empty cart needs nothing. */
+export const fundingNeeded = (priceLamports: bigint, count = 1) => {
+  const cartons = BigInt(Math.max(0, count));
+  return (priceLamports + CARTON_COST_LAMPORTS) * cartons;
+};
+
+/**
+ * What the funding helper says about a wallet, from its latest balance read. `empty` is the same fact the wallet dialog
+ * shows: a wallet that holds nothing, which only a surface with no cart total to compare against can report that way.
+ */
+export type Funding = { kind: "ok" } | { kind: "unreadable" } | { kind: "empty" } | { kind: "short"; balance: bigint; needed: bigint };
+
+/**
+ * The one funding rule every surface shares: the checkout card and the wallet dialog card both read the same state from
+ * the latest read, so shrinking the cart clears the funding prompt and growing it raises one again, and nothing latches.
+ * `needed` is what the surface is about to ask for, and a surface with no checkout in hand passes none. A read that failed
+ * is its own state at every cart size, so a flaky RPC neither claims the wallet is short nor hides the helper; a balance
+ * not read yet claims nothing. Nothing here stops a payment: the chain is the judge of whether a wallet can pay.
+ */
+export const funding = (balance: bigint | undefined, unreadable: boolean, needed?: bigint): Funding => {
+  if (needed != null && needed <= 0n) return { kind: "ok" }; // nothing selected, so there is nothing to fund and nothing to ask for
+  if (unreadable) return { kind: "unreadable" };
+  if (balance == null) return { kind: "ok" };
+  if (needed == null) return balance === 0n ? { kind: "empty" } : { kind: "ok" };
+  return balance < needed ? { kind: "short", balance, needed } : { kind: "ok" };
+};
+
+/**
+ * What a checkout does with the order, and the whole of what it decides before it sends: no wallet yet means open the
+ * wallet dialog, a payment already running or an empty cart means wait, anything else means pay with that same wallet.
+ * The funding state is deliberately not a question here — the question has nowhere to put one — so a wallet that could not
+ * be read, and a wallet short for the order, both go to the chain, which rejects the ones that cannot pay and comes back
+ * as `FUNDING_ERROR` with the faucet in it. So a failed or slow read can never turn the funding card into a payment that
+ * will not start.
+ */
+export type PayGate = { kind: "connect" } | { kind: "wait" } | { kind: "pay"; buyer: string };
+export const payGate = (q: { buyer?: string; busy: boolean; cartons: number }): PayGate =>
+  !q.buyer ? { kind: "connect" } : q.busy || q.cartons < 1 ? { kind: "wait" } : { kind: "pay", buyer: q.buyer };
+
+/** Raw RPC failures that really mean "this wallet has no money" (an unfunded devnet wallet). */
+export const isFundingError = (e: unknown) =>
+  /prior credit|insufficient/i.test(e instanceof Error ? e.message : String(e));
+
+/** The one sentence an unfunded wallet gets instead of raw RPC simulation text. */
+export const FUNDING_ERROR = "This wallet does not have enough devnet SOL yet. Get free devnet SOL from the faucet, then try again.";
 const CORE_ID = new PublicKey("CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d");
 const CAMPAIGN_IDS = [1];
 const connection = new Connection(DEVNET_RPC, "confirmed");
@@ -155,6 +210,8 @@ export class ProgramError extends Error {
 
 export function describeError(e: unknown): string {
   if (e instanceof ProgramError) return e.message;
+  // An unfunded wallet must never reach the player as raw RPC text.
+  if (isFundingError(e)) return FUNDING_ERROR;
   const msg = e instanceof Error ? e.message : String(e);
   const code = msg.match(/custom program error: 0x([0-9a-f]+)/i)?.[1];
   const key = code && (Object.keys(ERROR_COPY)[parseInt(code, 16) - 6000] as CryptoballError | undefined);
@@ -162,6 +219,9 @@ export function describeError(e: unknown): string {
   if (/reject|denied|cancel/i.test(msg)) return "The wallet request was cancelled.";
   return msg || "Something went wrong. Check your wallet and tickets before trying again.";
 }
+
+/** Devnet balance in lamports. */
+export const getBalance = async (address: string) => BigInt(await connection.getBalance(new PublicKey(address), "confirmed"));
 
 export async function fetchCampaigns(): Promise<Campaign[]> {
   return (await Promise.all(CAMPAIGN_IDS.map(fetchCampaign))).filter((c) => c.state === "Open" || c.ticketCount > 0);

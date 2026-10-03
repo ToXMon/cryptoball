@@ -1,9 +1,9 @@
 // Smallest runnable check for the pure logic: `pnpm test`.
 import assert from "node:assert/strict";
-import { quickPick, parts } from "./lib.ts";
-import { payout, ERROR_COPY, buyTicket, ProgramError, PROGRAM_ID, DEVNET_RPC } from "./program.ts";
+import { quickPick, parts, FUNDING_COPY, sol, fundingCopy } from "./lib.ts";
+import { payout, ERROR_COPY, buyTicket, ProgramError, PROGRAM_ID, describeError, fundingNeeded, isFundingError, FAUCET_URL, FUNDING_ERROR, DEVNET_RPC, funding, payGate } from "./program.ts";
 import { readFileSync } from "node:fs";
-import { accountFromPrfOutput } from "./passkeyWallet.ts";
+import { createBalanceRead, type BalanceState } from "./balance.ts";import { accountFromPrfOutput } from "./passkeyWallet.ts";
 
 assert.deepEqual(payout({ priceLamports: 100_000_000n, ticketCount: 10, feeBps: 1000 }), { pool: 1_000_000_000n, fee: 100_000_000n, prize: 900_000_000n });
 assert.equal(payout({ priceLamports: 3n, ticketCount: 1, feeBps: 1000 }).fee, 0n); // floor
@@ -17,6 +17,159 @@ assert.deepEqual(parts(90061), { d: 1, h: 1, m: 1, s: 1 });
 assert.equal(Object.keys(ERROR_COPY).length, 19); // keep in step with errors.rs
 assert.equal(PROGRAM_ID.toBase58(), "GtdcPM3LTX8G8pB1bVW1jWfuxTj3kZmD3axt4Q7whBpC"); // devnet program, README receipts
 await assert.rejects(buyTicket("w", 1, [5, 5, 6, 7, 8], 1), (e) => e instanceof ProgramError && e.code === "InvalidNumbers");
+
+// Funding helper: what a checkout needs must cover what it really costs, at any cart size. Devnet rent-exempt minimum
+// is 3480 lamports per byte-year over two years on top of the 128-byte account header.
+const rent = (space: number) => 3_480n * 2n * BigInt(128 + space);
+const cartonCost = rent(8 + 108) + rent(165) + 10_000n; // ticket account, Core asset account, two signatures per tx
+assert.equal(fundingNeeded(100_000_000n), 104_000_000n); // 0.1 SOL ticket + 0.004 SOL of rent and fee
+for (let count = 1; count <= 5; count++) {
+  assert.ok(fundingNeeded(100_000_000n, count) >= 100_000_000n * BigInt(count) + cartonCost, `cart of ${count}`);
+}
+// Nothing selected is nothing to fund, so an empty cart can never raise a "needs 0.004 SOL" prompt.
+assert.equal(fundingNeeded(100_000_000n, 0), 0n);
+assert.equal(funding(0n, false, fundingNeeded(100_000_000n, 0)).kind, "ok");
+assert.equal(funding(undefined, true, fundingNeeded(100_000_000n, 0)).kind, "ok");
+assert.equal(FAUCET_URL, "https://faucet.solana.com");
+assert.ok(!isFundingError(new Error("Sales for this draw have closed.")));
+assert.ok(isFundingError(new Error("Transaction simulation failed: Attempt to debit an account but found no record of a prior credit.")));
+assert.ok(isFundingError(new Error("insufficient funds for fee")));
+// The funding state is decided by the live read and the live cart total, so one balance flips both ways as the cart
+// changes and nothing latches: a wallet that can cover the order never keeps seeing "Get devnet SOL".
+const funded = 110_000_000n; // one ticket, with change over
+const short = fundingNeeded(100_000_000n, 2);
+assert.deepEqual(funding(0n, false, short), { kind: "short", balance: 0n, needed: short });
+assert.equal(funding(funded, false, short).kind, "short"); // cart grew past what the wallet holds
+assert.equal(funding(funded, false, fundingNeeded(100_000_000n, 1)).kind, "ok"); // same balance, cart shrank back
+assert.equal(funding(250_000_000n, false, short).kind, "ok");
+assert.equal(funding(undefined, false, fundingNeeded(100_000_000n, 1)).kind, "ok"); // no read yet: no claim, no gate
+// A failed read is its own state at every cart size: the helper still shows, with a way to read again, instead of claiming
+// anything about the wallet, and no payment decision can come out of it. Paying reads nothing, so a wallet whose read
+// failed still reaches the chain, the real judge, and fails there with FUNDING_ERROR if it really cannot pay.
+for (let count = 1; count <= 5; count++) {
+  assert.equal(funding(undefined, true, fundingNeeded(100_000_000n, count)).kind, "unreadable", `cart of ${count}`);
+}
+
+// The payment decision itself: `payGate` is the whole of what a checkout decides before it sends, so nothing the card
+// shows can hold a payment back. It is asked nothing about funding — its question has nowhere to put an answer — so every
+// connected wallet with cartons reaches the chain at every cart size, including the one the card calls short and the one
+// whose read failed, and only a missing wallet, a running payment or an empty cart hold it.
+const buyer = "So11111111111111111111111111111111111111112";
+for (let count = 1; count <= 5; count++) {
+  assert.deepEqual(payGate({ buyer, busy: false, cartons: count }), { kind: "pay", buyer }, `cart of ${count}`);
+}
+assert.deepEqual(payGate({ buyer: undefined, busy: false, cartons: 1 }), { kind: "connect" }); // no wallet: open the dialog
+assert.deepEqual(payGate({ buyer, busy: true, cartons: 1 }), { kind: "wait" }); // a payment is already running
+assert.deepEqual(payGate({ buyer, busy: false, cartons: 0 }), { kind: "wait" }); // nothing selected to pay for
+assert.match(FUNDING_COPY.unread, /balance could not be read/i);
+assert.equal(FUNDING_COPY.short(funded, short), `This wallet has ${sol(funded)}. One checkout needs ${sol(short)}: the ticket plus a small fee margin.`);
+assert.equal(describeError(new Error("Attempt to debit an account but found no record of a prior credit.")), FUNDING_ERROR);
+assert.ok(!/prior credit/i.test(describeError(new Error("Attempt to debit an account but found no record of a prior credit."))));
+assert.match(FUNDING_COPY.short(0n, fundingNeeded(100_000_000n, 1)), /0 SOL/);
+assert.match(FUNDING_COPY.short(0n, fundingNeeded(100_000_000n, 1)), /0.104 SOL/);
+assert.ok(/free devnet SOL/i.test(FUNDING_ERROR));
+assert.match(FUNDING_COPY.faucet, /free devnet test SOL/i);
+assert.match(FUNDING_COPY.faucet, /no value/i);
+
+// What that same state says is one rule too, so the checkout card and the wallet dialog card cannot drift apart: neither
+// may claim a wallet that could not be read needs SOL.
+const unread = fundingCopy(funding(undefined, true, fundingNeeded(100_000_000n, 1)))!;
+assert.deepEqual(unread, { heading: FUNDING_COPY.unreadHeading, note: FUNDING_COPY.unread });
+assert.doesNotMatch(unread.note, /paste/i);
+assert.doesNotMatch(unread.heading, /faucet/i);
+assert.deepEqual(fundingCopy(funding(undefined, true)), unread); // the wallet dialog, which needs no total to compare
+// A read that came back empty or short is the only thing that points at the faucet.
+const empty = fundingCopy(funding(0n, false))!;
+assert.deepEqual(empty, { heading: FUNDING_COPY.heading, note: FUNDING_COPY.empty });
+assert.match(empty.note, /0 devnet SOL/);
+assert.match(empty.note, /free devnet test SOL/i);
+assert.match(fundingCopy(funding(funded, false, short))!.note, new RegExp(`One checkout needs ${sol(short)}`));
+assert.equal(fundingCopy(funding(1n, false)), undefined); // a wallet that holds something needs no helper
+assert.equal(fundingCopy(funding(250_000_000n, false, fundingNeeded(100_000_000n, 1))), undefined);
+
+// The one shared read every one of those claims is made from, held against a scripted RPC: what a read may claim, whose
+// answer wins, and what a failed read does until it is asked again.
+const wallet = "So11111111111111111111111111111111111111112";
+const collector = () => {
+  const states: BalanceState[] = [];
+  return { states, publish: (patch: Partial<BalanceState>) => states.push({ ...(states[states.length - 1] ?? {}), ...patch } as BalanceState) };
+};
+const scripted = (answers: (bigint | Error)[]) => {
+  const { states, publish } = collector();
+  const asked: string[] = [];
+  const { read } = createBalanceRead(publish, async (address) => {
+    asked.push(address);
+    const next = answers.shift();
+    if (next === undefined) throw new Error("the scripted read ran out of answers");
+    if (next instanceof Error) throw next;
+    return next;
+  });
+  return { read, asked, states, state: () => states[states.length - 1] };
+};
+// The newest read wins however late an older one lands, and an answer for the wallet the user just switched away from does
+// not land on top of the new wallet's answer.
+{
+  const late: ((lamports: bigint) => void)[] = [];
+  const { states, publish } = collector();
+  const { read } = createBalanceRead(publish, () => new Promise<bigint>((res) => late.push(res)));
+  const left = read("a-wallet-the-user-left");
+  const newest = read(wallet);
+  late[1](250_000_000n); // the newest read answers
+  await newest;
+  late[0](1n); // the older one lands late, and is stale from the moment the newer one was asked for
+  await left;
+  assert.deepEqual(states[states.length - 1], { landing: { address: wallet, balance: 250_000_000n, unreadable: false }, reading: false });
+}
+// A read that failed claims nothing about the wallet, never "0 SOL", and the card's "Check balance again" is a plain
+// re-read of the same address, which recovers as soon as the RPC does.
+{
+  const flaky = scripted([new Error("429 Too Many Requests"), 250_000_000n]);
+  await flaky.read(wallet);
+  const failed = flaky.state().landing!;
+  assert.deepEqual([failed.address, failed.balance, failed.unreadable], [wallet, undefined, true]);
+  assert.equal(flaky.state().reading, false);
+  assert.equal(fundingCopy(funding(failed.balance, failed.unreadable, fundingNeeded(100_000_000n, 1)))!.heading, FUNDING_COPY.unreadHeading);
+  await flaky.read(wallet);
+  assert.deepEqual(flaky.asked, [wallet, wallet]);
+  assert.deepEqual(flaky.state(), { landing: { address: wallet, balance: 250_000_000n, unreadable: false }, reading: false });
+}
+// A re-read does not blank the claim the wallet already earned: the surfaces hold it, with the button waiting on it, until
+// the newest read answers.
+{
+  const held = scripted([250_000_000n, 200_000_000n]);
+  await held.read(wallet);
+  const inFlight = held.read(wallet);
+  assert.deepEqual(held.state(), { landing: { address: wallet, balance: 250_000_000n, unreadable: false }, reading: true });
+  await inFlight;
+  assert.deepEqual(held.state(), { landing: { address: wallet, balance: 200_000_000n, unreadable: false }, reading: false });
+}
+// The shared read is judged against the live cart every time it lands, so a wallet whose newest read cannot cover the order
+// is offered the faucet again, and one whose newest read covers it is offered nothing. When the page asks for that read is
+// its own wiring, which nothing here runs.
+{
+  const needed = fundingNeeded(100_000_000n, 1);
+  const spent = scripted([200_000_000n, 96_200_000n]);
+  await spent.read(wallet);
+  const before = spent.state().landing!;
+  assert.equal(fundingCopy(funding(before.balance, before.unreadable, needed)), undefined); // before paying: nothing to fund, so no helper
+  await spent.read(wallet); // what paying takes
+  const after = spent.state().landing!;
+  assert.equal(after.balance, 96_200_000n);
+  assert.deepEqual(fundingCopy(funding(after.balance, after.unreadable, needed)), { heading: FUNDING_COPY.heading, note: FUNDING_COPY.short(96_200_000n, needed) });
+  // The wallet dialog reads the same refreshed read, so a wallet drained by paying is offered the faucet there too.
+  const drained = scripted([104_000_000n, 0n]);
+  await drained.read(wallet);
+  await drained.read(wallet);
+  assert.deepEqual(fundingCopy(funding(drained.state().landing!.balance, false)), { heading: FUNDING_COPY.heading, note: FUNDING_COPY.empty });
+}
+// A disconnected wallet has no balance to claim, and no read to wait for.
+{
+  const gone = scripted([]);
+  await gone.read(wallet);
+  await gone.read();
+  assert.deepEqual(gone.asked, [wallet]);
+  assert.deepEqual([gone.state().landing, gone.state().reading], [undefined, false]);
+}
 
 // Passkey derivation known-answer (research report 1.3): a fixed PRF output must keep giving this address,
 // or a silent dependency bump moved the keys.

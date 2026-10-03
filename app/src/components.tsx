@@ -1,6 +1,6 @@
-import { Component, Suspense, lazy, useEffect, useRef, useState, type ComponentType, type LazyExoticComponent, type ReactNode } from "react";
-import { pad, parts, useNow, useReducedMotion } from "./lib";
-import type { Ticket } from "./program";
+import { Component, Suspense, lazy, useEffect, useId, useRef, useState, type ComponentType, type LazyExoticComponent, type ReactNode } from "react";
+import { pad, parts, useNow, useReducedMotion, fundingCopy, FUNDING_COPY } from "./lib";
+import { FAUCET_URL, describeError, isFundingError, type Funding, type Ticket } from "./program";
 
 export function Ball({ n, bonus, delay = 0, drop }: { n: number; bonus?: boolean; delay?: number; drop?: boolean }) {
   return (
@@ -90,6 +90,63 @@ export function Stage<P extends object>({ flat, scene, sceneProps, className = "
 }
 
 export const lazyScene = <P,>(load: () => Promise<{ default: ComponentType<P> }>) => lazy(load);
+
+const COPIED = "Address copied.";
+
+/**
+ * Funding helper for a wallet that cannot cover a ticket: the address, a copy button and a link out to the
+ * official Solana devnet faucet. No faucet of our own (R-82 devnet-only); the copy says plainly it is free play money.
+ * What it says about the wallet comes from `fundingCopy`, so every surface renders the same state the same way, and
+ * `recheck` re-reads the one shared balance read: it is there because a failed read must not hide the helper, and it
+ * waits for the read it started because only the newest read may speak for the wallet.
+ */
+export function Faucet({ address, fund, recheck }: { address: string; fund: Funding; recheck?: { read: () => void; reading: boolean } }) {
+  const headingId = useId();
+  const [status, setStatus] = useState<string>();
+  const copied = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const copy = fundingCopy(fund);
+  const copyAddress = async () => {
+    clearTimeout(copied.current); // the older copy's timer must not take this one's status down with it
+    try {
+      await navigator.clipboard.writeText(address);
+      setStatus(COPIED);
+      copied.current = setTimeout(() => setStatus(undefined), 2000);
+    } catch {
+      setStatus("Could not copy the address. Select it and copy it by hand.");
+    }
+  };
+  if (!copy) return null;
+  return (
+    <section className="cb-card cb-funding" aria-labelledby={headingId}>
+      <h2 id={headingId}>{copy.heading}</h2>
+      <p>{copy.note}</p>
+      <p className="cb-num cb-addr">{address}</p>
+      <p className="cb-row">
+        <button type="button" className="cb-btn cb-btn--ghost" onClick={() => void copyAddress()}>{status === COPIED ? "Address copied" : "Copy address"}</button>
+        {recheck && <button type="button" className="cb-btn cb-btn--ghost" disabled={recheck.reading} onClick={recheck.read}>{FUNDING_COPY.recheck}</button>}
+        <a className="cb-btn cb-btn--primary" href={FAUCET_URL} target="_blank" rel="noreferrer">Open Solana devnet faucet</a>
+      </p>
+      <p className="cb-fine" aria-live="polite">{status ?? FUNDING_COPY.faucet}</p>
+    </section>
+  );
+}
+
+/**
+ * The one surface every error in the app is rendered through: the described text. A page that shows no funding card of its
+ * own passes the address, and then a wallet short of devnet SOL also carries that address and the link that funds it,
+ * because `FUNDING_ERROR` names the faucet app-wide and nothing else on such a page points at one. A page that renders the
+ * funding card passes no address, and the card is the one place that address and that link are shown.
+ */
+export function Err({ e, address }: { e: unknown; address?: string }) {
+  if (!isFundingError(e) || !address) return <p className="cb-error" role="alert">{describeError(e)}</p>;
+  return (
+    <div className="cb-error" role="alert">
+      <p>{describeError(e)}</p>
+      <p className="cb-num cb-addr">{address}</p>
+      <p><a className="cb-btn cb-btn--primary" href={FAUCET_URL} target="_blank" rel="noreferrer">Open Solana devnet faucet</a></p>
+    </div>
+  );
+}
 
 export function TicketFace({ t }: { t: Pick<Ticket, "numbers" | "bonus" | "index" | "campaign"> }) {
   return (
