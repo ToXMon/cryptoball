@@ -43,7 +43,7 @@ cargo test -p cryptoball          # pinned-id check
 cargo build-sbf --manifest-path programs/cryptoball/Cargo.toml
 anchor build && pnpm install && pnpm test   # LiteSVM suite (needs target/deploy/cryptoball.so)
 cd app && pnpm install && pnpm dev   # also: pnpm test (pure-logic check), pnpm build
-node --test ops/open-game.test.mjs  # ops guardrails (limits, duplicate, staggering), no chain
+node --test ops/*.test.mjs  # ops guardrails (limits, duplicate, staggering, admin guards, IDL), no chain
 ```
 
 ## Devnet RPC endpoint
@@ -89,6 +89,15 @@ the measured devnet cost; the same receipt is appended as one line to `ops/log/o
 Flags: `--price <SOL>` (program floor 0.002; the agreed tiers are 0.01 / 0.1 / 1 - parameters, not
 policy), `--duration <hours>` or `auto`, `--cap <n>` (program max 10000), `--id <n>`, `--allow-duplicate`.
 
+**No Rust toolchain on the host.** The program IDL is committed at `ops/cryptoball.idl.json`, and
+both ops tools read that copy first (`target/idl/cryptoball.json` is only a fallback for a working
+tree that has built the program). So on a plain Ubuntu host it is `git clone`, `pnpm install`,
+`node ops/open-game.mjs` - no anchor, no cargo-build-sbf, no cold compile. The copy is the IDL of
+the deployed program `GtdcPM3LTX8G8pB1bVW1jWfuxTj3kZmD3axt4Q7whBpC`, taken from the on-chain IDL
+account published at deploy (`BgERvSGr6d4jDr53jaKF8eXqimgdFwVSTMc4ekR4o7c`); `loadIdl()` fails
+loudly if the file is missing, unreadable, or not that program's IDL, so this cannot silently
+regress into needing a toolchain.
+
 Guardrails, all of them before anything is signed:
 
 - **Program limits.** A price below `MIN_TICKET_PRICE_LAMPORTS` or a cap outside `1..MAX_TICKETS` is
@@ -103,10 +112,40 @@ Guardrails, all of them before anything is signed:
 - Id is always the next free id (from `getProgramAccounts`), so a failed attempt never poisons the
   next one.
 
+### Wallet model and admin handover
+
+Every ops tool signs with `$ANCHOR_WALLET`, or `~/.tape/cryptoball-deploy.json` when that is unset.
+The signer must be the on-chain **admin**, because `create_campaign` requires it. Honest version of
+the recommendation: **the VPS should not hold the funded deploy key.** Nominate a dedicated opener
+key through the program itself, then hand admin back - a remote host then holds a key that can open
+games and nothing else. Do these in order:
+
+```
+# 0. on the funded host, with the current admin key:
+node ops/admin.mjs status                                    # who is admin, is anyone pending
+node ops/admin.mjs nominate <opener-pubkey>                  # signed by the CURRENT admin
+
+# 1. move the opener keypair to the VPS (e.g. ~/.tape/cryptoball-opener.json, chmod 600) and:
+ANCHOR_WALLET=~/.tape/cryptoball-opener.json node ops/admin.mjs accept   # signed by the NOMINEE
+
+# 2. confirm who holds what, from anywhere:
+node ops/admin.mjs status                                    # admin=<opener>, pending=none
+```
+
+`nominate` is signed by the current admin and `accept` by the nominee; the tool refuses before
+signing anything if the signer is not the right party for that step (and says who should be). Each
+step prints the admin state before and after, plus the tx signature and an Explorer link. It never
+prints a secret key - only public keys. To hand admin back, run the same two commands with the
+opener key as the current admin and the deploy key as the nominee. `pending=none` means no
+nomination is outstanding.
+
 ### Rolling schedule
 
 `ops/schedule.sh` runs the same command on a fixed interval with `--duration auto`, which rotates
-6 / 10 / 14 hours by wall-clock slot so closes never all land at once.
+6 / 10 / 14 hours by wall-clock slot so closes never all land at once. **It is macOS launchd only**
+- it writes `~/Library/LaunchAgents/site.cryptoball.open-game.plist` and calls `launchctl`, so it
+does nothing on an Ubuntu host. On Linux, use cron: one fixed entry, no launcher logic needed,
+because `--duration auto` already staggers closes 6/10/14h by wall-clock slot.
 
 ```
 ops/schedule.sh install 6          # writes and loads ~/Library/LaunchAgents/site.cryptoball.open-game.plist
@@ -118,6 +157,27 @@ ops/schedule.sh uninstall          # unload and delete the plist
 ops/schedule.sh log                # follow the receipts
 SCHEDULE_PRICE=0.01 ops/schedule.sh install 6   # price/cap fixed at install time
 ```
+
+#### Linux / VPS: cron
+
+On an Ubuntu host there is no launchd, so the portable path is a single cron entry that runs the
+same command every 6 h (`crontab -e`; the entry exports `ANCHOR_WALLET` itself, so cron does not
+need an interactive login):
+
+```
+0 */6 * * * cd /home/opadmin/cryptoball && ANCHOR_WALLET=/home/opadmin/.tape/cryptoball-opener.json /usr/bin/node ops/open-game.mjs --price 0.1 --duration auto --cap 1000 >> ops/log/cron.log 2>&1
+```
+
+- **Interval**: `0 */6 * * *` = every 6 h. Change the `*/6` for a different cadence; `--duration
+  auto` keeps the closes staggered whatever the interval is.
+- **Logs**: `ops/log/open-game.log` gets one line per run (`OPENED {...}` / `DRYRUN` / `REFUSED
+  <why>` / `FAILED <why> state=...`), and cron's own stdout+stderr goes to `ops/log/cron.log`.
+- **Did it run?** `tail -5 ops/log/open-game.log`, or `grep -c OPENED ops/log/open-game.log` for a
+  count, or `systemctl status cron` / `journalctl -u cron` for the scheduler itself. If the log is
+  silent, cron is not firing - run the command by hand once, exactly as cron runs it, to see the
+  error.
+- **First check on a new host**: run the same command with `--dry-run` first (plan and cost, sends
+  nothing), then without it.
 
 Every run appends one line to `ops/log/open-game.log` (`OPENED {...}` with address, close time,
 signature and cost; `DRYRUN`; `REFUSED <why>`; `FAILED <why> state=<what exists on chain>`), so a
