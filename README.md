@@ -43,7 +43,72 @@ cargo test -p cryptoball          # pinned-id check
 cargo build-sbf --manifest-path programs/cryptoball/Cargo.toml
 anchor build && pnpm install && pnpm test   # LiteSVM suite (needs target/deploy/cryptoball.so)
 cd app && pnpm install && pnpm dev   # also: pnpm test (pure-logic check), pnpm build
+node --test ops/open-game.test.mjs  # ops guardrails (limits, duplicate, staggering), no chain
 ```
+
+## Ops: opening a game
+
+One command opens one campaign against the deployed devnet program, as the admin
+(`~/.tape/cryptoball-deploy.json`, or `$ANCHOR_WALLET`). **Manual path first, because it is the
+fallback that makes the scheduler safe:**
+
+```
+node ops/open-game.mjs --price 0.1 --duration 10 --cap 1000     # opens it, in seconds
+node ops/open-game.mjs --price 0.1 --duration 10 --cap 1000 --dry-run   # plan only, sends nothing
+```
+
+It prints the campaign address, the close time in UTC, the tx signature with an Explorer link, and
+the measured devnet cost; the same receipt is appended as one line to `ops/log/open-game.log`.
+Flags: `--price <SOL>` (program floor 0.002; the agreed tiers are 0.01 / 0.1 / 1 - parameters, not
+policy), `--duration <hours>` or `auto`, `--cap <n>` (program max 10000), `--id <n>`, `--allow-duplicate`.
+
+Guardrails, all of them before anything is signed:
+
+- **Program limits.** A price below `MIN_TICKET_PRICE_LAMPORTS` or a cap outside `1..MAX_TICKETS` is
+  refused with the reason (the smallest prize would not cover vault rent / cap too high).
+- **No double-booking.** If a campaign is already `Open` at the same price and its close window
+  lands within 2 h of the requested one, it refuses and names that campaign. `--allow-duplicate`
+  overrides; `--dry-run` shows the plan and what it would have refused.
+- **No silent half-campaign.** Every RPC call retries with backoff (public devnet answers 429 a
+  lot, so a rate limit is reported, never assumed). If `create_campaign` fails, the tool re-reads
+  the chain and logs the exact state it stopped in: whether the campaign account exists, whether
+  the Core collection exists, and whether a signature came back.
+- Id is always the next free id (from `getProgramAccounts`), so a failed attempt never poisons the
+  next one.
+
+### Rolling schedule
+
+`ops/schedule.sh` runs the same command on a fixed interval with `--duration auto`, which rotates
+6 / 10 / 14 hours by wall-clock slot so closes never all land at once.
+
+```
+ops/schedule.sh install 6          # writes and loads ~/Library/LaunchAgents/site.cryptoball.open-game.plist
+ops/schedule.sh status             # plist, launchctl state, last 5 log lines
+ops/schedule.sh now --dry-run      # one tick, sends nothing
+ops/schedule.sh start              # kick a tick now, interval keeps running
+ops/schedule.sh stop               # unload the job (plist stays; 'install' reloads it)
+ops/schedule.sh uninstall          # unload and delete the plist
+ops/schedule.sh log                # follow the receipts
+SCHEDULE_PRICE=0.01 ops/schedule.sh install 6   # price/cap fixed at install time
+```
+
+Every run appends one line to `ops/log/open-game.log` (`OPENED {...}` with address, close time,
+signature and cost; `DRYRUN`; `REFUSED <why>`; `FAILED <why> state=<what exists on chain>`), so a
+silent unattended failure is not possible - check `ops/schedule.sh status`.
+
+The job is **not installed by default**: this worktree is disposable and the captain picks the
+cadence after seeing the cost below.
+
+### Cost, honestly
+
+Measured on devnet for campaign 4 (receipt below): **0.0029564 SOL per campaign**
+= campaign account rent 1,742,440 + Metaplex Core collection rent 1,203,960 + tx fee 10,000
+(the vault PDA holds 0 lamports until tickets are bought). Devnet balance after that run:
+5.519705 SOL, so **~1,867 campaigns** before the deploy wallet is empty. That is the real ceiling:
+every 6 h (4/day) is ~467 days of unattended running, every 2 h (12/day) ~155 days, every 1 h
+(24/day) ~78 days. Devnet SOL is faucet-limited long before that, so the binding constraint is
+airdrops, not the arithmetic - but the arithmetic is the answer to "how much of this can run
+unattended".
 
 ## Site (tape.site)
 
@@ -63,6 +128,20 @@ Toolchain for the deployed build: anchor-cli 0.32.1, solana-cli 4.2.2, cargo-bui
 | Upgrade authority / treasury | [`9ACfknztv9UqJLLccZnBgjxFNbkNZERMwJbikj4dait7`](https://explorer.solana.com/address/9ACfknztv9UqJLLccZnBgjxFNbkNZERMwJbikj4dait7?cluster=devnet) (devnet placeholder wallet; `Config.fee_bps` = 1000) |
 | initialize tx | [`5o8E3nEZoPEGsBgevLfQp3QaeJ9eGvWGJxC2Ex5DPz4ouzoi5SUD2cLj3z7Z5okyAm5d5VtRxRdWvC8ds8vFzAAD`](https://explorer.solana.com/tx/5o8E3nEZoPEGsBgevLfQp3QaeJ9eGvWGJxC2Ex5DPz4ouzoi5SUD2cLj3z7Z5okyAm5d5VtRxRdWvC8ds8vFzAAD?cluster=devnet) (`Config` PDA `ECehTFBNuFQZrfHTWMcUWiMCbwF6KvHbXCxzMa6JPFwf`) |
 | Site redeploy (merged main, live program + passkey wallet) | 2026-10-02T21:14Z via `tape deploy app/dist/index.html` on tape `HTzCcSXy5sWncaPuVbySqMAG4FCs7EkttpGRLR1urycJ` (id 816, epoch 245, expires ~2026-10-13). Served `assets/index-CXWQxE6U.js` carries `GtdcPM3...`; `_site.json` ships with the devnet RPC origins; verified in-browser: page loads with no console errors (only a favicon 404), campaign 1 renders 0.09 SOL / 5 of 69 from devnet, the wallet dialog offers the passkey wallet alongside installed ones, and `https://api.devnet.solana.com` answers from the page origin. A real passkey ceremony was not run in headless Chrome. `--prune` could not delete the stale old chunk (tape rejected the delete); the orphan is unreferenced. |
+
+### Campaign 4 (opened by the ops tool, `ops/open-game.mjs`)
+
+| Item | Value |
+|---|---|
+| Campaign / vault | [`FrqfHBZZXFbcMmmNNxQrEa6v6iKUZmLY6TPGC23EMbNq`](https://explorer.solana.com/address/FrqfHBZZXFbcMmmNNxQrEa6v6iKUZmLY6TPGC23EMbNq?cluster=devnet) / `5tJFojqskJB5WYawL7fZp26idtaeKibiM7MAaMsChJve` |
+| Core collection | `864AF5VajM9pn9F81iieBRpBLcGnyXMCy11H6rJSwutm` |
+| Parameters | 0.1 SOL, cap 1000, closes 2026-10-03T12:20:45Z (opened 2026-10-03T02:20:45Z) |
+| create_campaign tx | [`3BWhYTCvZsuv2t6Xqq35p6KLZj9HrQSexL6iX45BCNdMcW2ddjGewSHEDocDuj42Ua3w7p5k82ZwTqCzkhhDbvP2`](https://explorer.solana.com/tx/3BWhYTCvZsuv2t6Xqq35p6KLZj9HrQSexL6iX45BCNdMcW2ddjGewSHEDocDuj42Ua3w7p5k82ZwTqCzkhhDbvP2?cluster=devnet) |
+| Cost to the deploy wallet | 0.002956400 SOL (2,956,400 lamports), measured by balance delta |
+
+Opened by `node ops/open-game.mjs --price 0.1 --duration 10 --cap 1000` on the deployed program.
+Not yet visible in the web app: `CAMPAIGN_IDS` in `app/src/program.ts` still lists `[1]` only, and
+that list is player-facing app policy, not ops. `open-game` prints the reminder on every open.
 
 ### Campaign 1 (open, for players)
 
