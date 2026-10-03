@@ -4,8 +4,9 @@
 //   node ops/open-game.mjs --price 0.1 --duration 8 --cap 1000
 //
 // Prints the campaign address, the close time in UTC, the tx signature with an
-// Explorer link, and the measured devnet cost. Reuses target/idl/cryptoball.json
-// and the deploy key at ~/.tape/cryptoball-deploy.json. Never mainnet.
+// Explorer link, and the measured devnet cost. Reads the committed IDL
+// (ops/cryptoball.idl.json) and the deploy key at ~/.tape/cryptoball-deploy.json.
+// Never mainnet.
 import anchor from "@coral-xyz/anchor";
 import web3 from "@solana/web3.js";
 import fs from "node:fs";
@@ -17,11 +18,31 @@ const { Keypair, PublicKey, SystemProgram, Connection, LAMPORTS_PER_SOL } = web3
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 // Dedicated QuickNode devnet endpoint (the free public RPC rate-limited uploads and pipeline runs).
 // RPC_URL overrides it for one-off runs; ops/schedule.sh inherits the same default.
-const RPC = process.env.RPC_URL || process.env.CRYPTOBALL_RPC || "https://hardworking-broken-field.solana-devnet.quiknode.pro/ec3c0ae727818aaaead289ef2e844d4df1411e75/";
-const WALLET = process.env.ANCHOR_WALLET || `${process.env.HOME}/.tape/cryptoball-deploy.json`;
+export const RPC = process.env.RPC_URL || process.env.CRYPTOBALL_RPC || "https://hardworking-broken-field.solana-devnet.quiknode.pro/ec3c0ae727818aaaead289ef2e844d4df1411e75/";
+export const WALLET = process.env.ANCHOR_WALLET || `${process.env.HOME}/.tape/cryptoball-deploy.json`;
 const LOG = path.join(ROOT, "ops", "log", "open-game.log");
 const EXPLORER = "https://explorer.solana.com";
 const CORE_ID = new PublicKey("CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d");
+export const PROGRAM_ID = "GtdcPM3LTX8G8pB1bVW1jWfuxTj3kZmD3axt4Q7whBpC"; // deployed devnet program (see README receipts)
+
+// The IDL of the deployed program is committed here, so a plain Ubuntu host runs this file with
+// node alone - no anchor, no cargo-build-sbf, no target/. target/idl is only a fallback for a
+// working tree that has built the program.
+export const COMMITTED_IDL = path.join(ROOT, "ops", "cryptoball.idl.json");
+export const idlCandidates = () => [COMMITTED_IDL, path.join(ROOT, "target", "idl", "cryptoball.json")];
+
+export function loadIdl(candidates = idlCandidates()) {
+  const first = candidates.find((p) => fs.existsSync(p));
+  if (!first) throw new Error(`no IDL found: tried ${candidates.map((p) => path.relative(ROOT, p)).join(", ")} - the committed ops/cryptoball.idl.json must be in the repo, and there is no target/idl build to fall back on`);
+  let idl;
+  try {
+    idl = JSON.parse(fs.readFileSync(first, "utf8"));
+  } catch (e) {
+    throw new Error(`IDL ${path.relative(ROOT, first)} is unreadable: ${e.message}`);
+  }
+  if (idl.address !== PROGRAM_ID) throw new Error(`IDL address ${idl.address} is not the deployed program ${PROGRAM_ID}`);
+  return idl;
+}
 
 // mirrors programs/cryptoball/src/constants.rs
 export const LIMITS = {
@@ -127,13 +148,13 @@ export async function main(argv = process.argv.slice(2)) {
   --dry-run    validate, price it, print the plan, send nothing
   --allow-duplicate  skip the same-price/overlapping-window guard
 
-wallet: ${WALLET}   rpc: ${RPC}   log: ${path.relative(ROOT, LOG)}`);
+wallet: ${WALLET}   rpc: ${RPC}   log: ${path.relative(ROOT, LOG)}
+idl:   ${path.relative(ROOT, COMMITTED_IDL)} (committed, no toolchain needed)`);
     return 0;
   }
 
-  const idl = JSON.parse(fs.readFileSync(path.join(ROOT, "target", "idl", "cryptoball.json"), "utf8"));
-  const programId = new PublicKey("GtdcPM3LTX8G8pB1bVW1jWfuxTj3kZmD3axt4Q7whBpC");
-  if (idl.address !== programId.toBase58()) throw new Error(`IDL address ${idl.address} is not the deployed program ${programId}`);
+  const idl = loadIdl();
+  const programId = new PublicKey(PROGRAM_ID);
 
   const payer = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(WALLET, "utf8"))));
   const connection = new Connection(RPC, "confirmed");

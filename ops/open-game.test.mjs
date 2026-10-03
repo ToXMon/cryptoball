@@ -1,7 +1,10 @@
 // node --test ops/  - pure logic only, no chain.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { validate, findDuplicate, staggeredDuration, parseArgs, LIMITS } from "./open-game.mjs";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { validate, findDuplicate, staggeredDuration, parseArgs, LIMITS, loadIdl, idlCandidates, COMMITTED_IDL, PROGRAM_ID } from "./open-game.mjs";
 
 const now = 1_700_000_000_000;
 const open = (priceLamports, closeTs, id = 1n, state = { open: {} }) => ({ id, priceLamports: BigInt(priceLamports), closeTs: BigInt(closeTs), state });
@@ -40,4 +43,18 @@ test("flag parsing", () => {
   assert.equal(parseArgs(["--allow-duplicate"]).allowDuplicate, true);
   assert.throws(() => parseArgs(["--price"]), /needs a value/);
   assert.throws(() => parseArgs(["--nope", "1"]), /unknown flag/);
+});
+
+test("the committed IDL is what a fresh clone resolves, and it is the deployed program", () => {
+  assert.equal(idlCandidates()[0], COMMITTED_IDL, "committed IDL must be preferred over target/");
+  const idl = loadIdl();
+  assert.equal(idl.address, PROGRAM_ID);
+  assert.ok(idl.instructions.some((i) => i.name === "create_campaign"), "create_campaign must be in the committed IDL");
+});
+
+test("a missing or unreadable IDL fails loudly instead of needing a toolchain", () => {
+  assert.throws(() => loadIdl(["ops/cryptoball.idl.json", "target/idl/cryptoball.json"].map((p) => `/nonexistent/${p}`)), /no IDL found.*cryptoball\.idl\.json.*no target\/idl build/s);
+  const junk = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "idl-")), "cryptoball.json");
+  fs.writeFileSync(junk, "{ not json");
+  assert.throws(() => loadIdl([junk]), /unreadable/);
 });
