@@ -35,7 +35,10 @@ export interface WalletSigner {
   sendTransaction?: (tx: Transaction, connection: Connection, options?: SendOptions) => Promise<string>;
 }
 
-export const DEVNET_RPC = "https://api.devnet.solana.com";
+// The one devnet endpoint for the whole app: a dedicated QuickNode plan, because the free public
+// devnet RPC rate-limited us (HTTP 429 on program uploads and pipeline runs). Browser-visible by
+// design - this is a public static site, so the token is a public value; watch the plan's quota.
+export const DEVNET_RPC = "https://hardworking-broken-field.solana-devnet.quiknode.pro/ec3c0ae727818aaaead289ef2e844d4df1411e75/";
 export const PROGRAM_ID = new PublicKey("GtdcPM3LTX8G8pB1bVW1jWfuxTj3kZmD3axt4Q7whBpC");
 const CORE_ID = new PublicKey("CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d");
 const CAMPAIGN_IDS = [1];
