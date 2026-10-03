@@ -132,10 +132,10 @@ export function Faucet({ address, fund, recheck }: { address: string; fund: Fund
 }
 
 /**
- * The one surface every error in the app is rendered through. A transaction that failed for want of devnet SOL says so in
- * plain words and carries the address to fund and the link that funds it, because `FUNDING_ERROR` names the faucet app-wide
- * and a page must never point at an affordance it is not showing; every other error is the described text. With no address in
- * hand there is nothing to fund from, so it falls back to the described text like any other.
+ * The one surface every error in the app is rendered through: the described text. A page that shows no funding card of its
+ * own passes the address, and then a wallet short of devnet SOL also carries that address and the link that funds it,
+ * because `FUNDING_ERROR` names the faucet app-wide and nothing else on such a page points at one. A page that renders the
+ * funding card passes no address, and the card is the one place that address and that link are shown.
  */
 export function Err({ e, address }: { e: unknown; address?: string }) {
   if (!isFundingError(e) || !address) return <p className="cb-error" role="alert">{describeError(e)}</p>;

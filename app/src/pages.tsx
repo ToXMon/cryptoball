@@ -166,12 +166,11 @@ function Checkout({ c, cart, total, fee, onBought }: { c: Campaign; cart: Carton
   const fund = funding(balance, unreadable, fundingNeeded(c.priceLamports, cart.length));
   const gate = payGate({ buyer, busy, cartons: cart.length });
 
-  // The shared read is only worth a claim while it is current, and what it is judged against changes as the cart does, so
-  // this checkout asks for a fresh read whenever it mounts (coming back into the draw) and whenever the cart total changes.
-  // It does not key those reads to `read` as well: `read` is rebuilt with the address, and the read above this one already
-  // fires on a wallet switch, so keying to both would send the same read twice per switch. No polling: these transitions,
-  // paying below, and the card's own re-check are the whole of it.
-  useEffect(() => { read(); }, [cart.length]);
+  // Entering this draw is the one moment here that can leave the shared landing stale, so this asks for one read: the card
+  // judges the landing it holds against the live cart total on every render, so a cart that changes is no reason to read
+  // again — the claim, not the need, is what goes stale. It does not key to `read` either: `read` is rebuilt with the address,
+  // and the read above this one already fires on a wallet switch. No polling: this, paying below, and the card's own re-check.
+  useEffect(() => { read(); }, []);
 
   // R-82: the app only ever talks to the devnet RPC (Wallets.tsx), so the cluster is fixed; the adapter has no cluster
   // readout, so the wallet-side check lives in the real program adapter when signing.
@@ -211,7 +210,7 @@ function Checkout({ c, cart, total, fee, onBought }: { c: Campaign; cart: Carton
       <button type="button" className="cb-btn cb-btn--primary cb-btn--block" disabled={busy || gate.kind === "wait"} onClick={pay}>
         {busy ? `Confirming ${progress + 1} of ${cart.length}…` : buyer ? `Pay ${sol(total)}` : "Connect wallet to pay"}
       </button>
-      {err != null && <Err e={err} address={address} />}
+      {err != null && <Err e={err} />}
       {address != null && <Faucet address={address} fund={fund} recheck={{ read, reading }} />}
       {busy && <p className="cb-muted" aria-live="polite">Approve each ticket in your wallet.</p>}
     </div>
