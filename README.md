@@ -83,6 +83,13 @@ pays that rent (about 0.0016 SOL) plus the tx fee. Devnet SOL for gas has to com
 (faucet.solana.com, or an existing wallet); the 0.11 SOL itself always comes from the faucet. Ask for
 the gas top-up before showing the button, or send it from a warm wallet.
 
+**In the app.** The funding card (`Get devnet SOL`, on the checkout and in the wallet dialog) now has a
+`Claim 0.11 SOL` button that calls `claim_sol` through the connected wallet, with the external faucet
+kept as the secondary way out. The button reads the faucet ledger and this wallet's claim record first,
+so it never offers more than the pool has left or than the lifetime allowance, and a cap that is already
+spent shows the program's own words (`ERROR_COPY`: `ClaimLifetimeCap`, `FaucetDrained`, ...) instead of
+raw RPC text. A drained pool shows `FaucetDrained` and leaves the external faucet as the answer.
+
 ### PDAs (devnet, program `GtdcPM3...`)
 
 | Account | Seeds | Address |
@@ -119,6 +126,8 @@ gas from the deploy wallet (the devnet airdrop was rate limited):
 | 0.11 SOL, second | succeeds | [`4MVGaCNU1wn5Xhu9Hymp7JBt2n3MJSaDX2iKBqmKLf8uKTzwxG2UA6PM5pUX4BSHXokiPXdcFvgnum92LcNNwzXL`](https://explorer.solana.com/tx/4MVGaCNU1wn5Xhu9Hymp7JBt2n3MJSaDX2iKBqmKLf8uKTzwxG2UA6PM5pUX4BSHXokiPXdcFvgnum92LcNNwzXL?cluster=devnet) |
 | 0.11 SOL, third (lifetime 0.33) | succeeds | [`2doHX1iVB2Taakx5fLuprJY6NG9H4S4LkPfNccqY8L835acXTUmcEcWthL3KuNAyXvndmybkBYLQZvv3Gv8tWHJF`](https://explorer.solana.com/tx/2doHX1iVB2Taakx5fLuprJY6NG9H4S4LkPfNccqY8L835acXTUmcEcWthL3KuNAyXvndmybkBYLQZvv3Gv8tWHJF?cluster=devnet) |
 | 0.01 SOL, over the lifetime ceiling | **rejected**, `ClaimLifetimeCap` (6020) | [`3syFCESbnPnVKToVMYmbu1BatMd54YonGLAs4qwbJvDQvZdpxcQxSX9pKnQFEwXSiVCL4buQUF3oddTrbcqnkMgR`](https://explorer.solana.com/tx/3syFCESbnPnVKToVMYmbu1BatMd54YonGLAs4qwbJvDQvZdpxcQxSX9pKnQFEwXSiVCL4buQUF3oddTrbcqnkMgR?cluster=devnet) |
+
+| **In-app claim**: the app's own client path, `claimGate` -> `claimSol` (`claim_sol` tag derived from the program's own name), from a throwaway keypair dusted with 0.02 SOL | **succeeds** (0.02 -> 0.129100920 SOL); ledger `dispensed` 660,000,000 -> 770,000,000, claim record `claimed = 110000000` | [`5JewNt4msXBKURTST1sDoU8i5LJj2RMZ9bxbLAuSCFVQwG9hhCKkSu7eGewTfcRGirNy1Ns33Lygm7gT5cWnXFap`](https://explorer.solana.com/tx/5JewNt4msXBKURTST1sDoU8i5LJj2RMZ9bxbLAuSCFVQwG9hhCKkSu7eGewTfcRGirNy1Ns33Lygm7gT5cWnXFap?cluster=devnet) |
 
 Claim delta check: 110,000,000 - 109,100,920 = 899,080 lamports = 894,080 (rent of the 48-byte
 `claim_record`, the cluster's own `getMinimumBalanceForRentExemption`) + 5,000 tx fee. The vault only
@@ -474,10 +483,12 @@ Toolchain for the deployed build: anchor-cli 0.32.1, solana-cli 4.2.2, cargo-bui
 | Cost to the deploy wallet | 0.002956400 SOL (2,956,400 lamports), measured by balance delta |
 
 Opened by `node ops/open-game.mjs --price 0.1 --duration 10 --cap 1000` on the deployed program.
-Not yet visible in the web app at the time it was opened: `CAMPAIGN_IDS` in `app/src/program.ts`
-still listed `[1]` only, and that list is player-facing app policy, not ops. `open-game` prints the
-reminder on every open. **Now `[1..8]`** - see the follow-up below, the list is still the reason a
-newly scheduled campaign is invisible until the site is rebuilt.
+At the time it was opened the web app could not see it: `CAMPAIGN_IDS` in `app/src/program.ts`
+listed `[1]` only, and that list was player-facing app policy, not ops. `open-game` prints the
+reminder on every open. **Both are now gone**: the app discovers campaigns from the chain
+(`getProgramAccounts` filtered by the campaign account discriminator, verified against
+`ops/cryptoball.idl.json`), so a newly scheduled campaign is visible without touching or
+redeploying the app.
 
 ### Campaigns 5, 6, 7 (opened by hand so players have something to buy)
 
@@ -562,12 +573,7 @@ So: **no bug, no fix, nothing to change in the program or the app.** `Open` is t
 state, not a sales-open flag, and it is deliberately kept so the campaign stays drawable after
 sales close.
 
-**Named follow-up, cosmetic, not fixed here.** The draw detail page (`app/src/pages.tsx`, the
-`c.state === "Open"` branch of `Results`) renders `Sales close in` plus a countdown for any
-`Open` campaign, so a *directly linked* expired campaign shows a negative countdown and "The draw
-happens after sales close." Nothing is buyable from there, but it reads as though it were. It is a
-one-line fix (reuse the same `state === "Open" && closeTs > now` predicate the lobby uses) and was
-left out because nothing about it can take or hold a player's money.
+**Named follow-up, fixed in PR #14.** The draw detail page (`app/src/pages.tsx`, the `c.state === "Open"` branch of `Results`) used to render `Sales close in` plus a countdown for any `Open` campaign, so a *directly linked* expired campaign showed a negative countdown and "The draw happens after sales close." Nothing was buyable from there, but it read as though it were. It now uses the same `state === "Open" && closeTs > now` predicate the lobby uses, and an expired-but-uncommitted draw says so in words ("Sales have closed. This draw has not been committed to randomness yet, so there is no winner and nobody has been paid.") with no pick button.
 
 ### Campaign 1 (open, for players)
 

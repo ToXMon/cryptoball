@@ -1,6 +1,7 @@
 import { Component, Suspense, lazy, useEffect, useId, useRef, useState, type ComponentType, type LazyExoticComponent, type ReactNode } from "react";
-import { pad, parts, useNow, useReducedMotion, fundingCopy, FUNDING_COPY } from "./lib";
-import { FAUCET_URL, describeError, isFundingError, type Funding, type Ticket } from "./program";
+import { useWallet } from "@solana/wallet-adapter-react";
+import { pad, parts, useNow, useReducedMotion, fundingCopy, FUNDING_COPY, CLAIM_CAPS, sol, useAsync } from "./lib";
+import { FAUCET_URL, claimGate, claimSol, describeError, ERROR_COPY, fetchClaimRecord, fetchFaucet, faucetRemaining, isFundingError, type Funding, type Ticket } from "./program";
 
 export function Ball({ n, bonus, delay = 0, drop }: { n: number; bonus?: boolean; delay?: number; drop?: boolean }) {
   return (
@@ -94,40 +95,91 @@ export const lazyScene = <P,>(load: () => Promise<{ default: ComponentType<P> }>
 const COPIED = "Address copied.";
 
 /**
- * Funding helper for a wallet that cannot cover a ticket: the address, a copy button and a link out to the
- * official Solana devnet faucet. No faucet of our own (R-82 devnet-only); the copy says plainly it is free play money.
- * What it says about the wallet comes from `fundingCopy`, so every surface renders the same state the same way, and
- * `recheck` re-reads the one shared balance read: it is there because a failed read must not hide the helper, and it
- * waits for the read it started because only the newest read may speak for the wallet.
+ * An address with a copy button, so a player never has to read one out of a wall of characters. Used for the wallet
+ * address and for the winner's, so both truncate the same way and copy the same way.
  */
-export function Faucet({ address, fund, recheck }: { address: string; fund: Funding; recheck?: { read: () => void; reading: boolean } }) {
-  const headingId = useId();
+export function Copyable({ value, label = "Copy address", display }: { value: string; label?: string; display?: string }) {
   const [status, setStatus] = useState<string>();
   const copied = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const copy = fundingCopy(fund);
-  const copyAddress = async () => {
+  const copy = async () => {
     clearTimeout(copied.current); // the older copy's timer must not take this one's status down with it
     try {
-      await navigator.clipboard.writeText(address);
+      await navigator.clipboard.writeText(value);
       setStatus(COPIED);
       copied.current = setTimeout(() => setStatus(undefined), 2000);
     } catch {
       setStatus("Could not copy the address. Select it and copy it by hand.");
     }
   };
-  if (!copy) return null;
   return (
-    <section className="cb-card cb-funding" aria-labelledby={headingId}>
-      <h2 id={headingId}>{copy.heading}</h2>
-      <p>{copy.note}</p>
-      <p className="cb-num cb-addr">{address}</p>
-      <p className="cb-row">
-        <button type="button" className="cb-btn cb-btn--ghost" onClick={() => void copyAddress()}>{status === COPIED ? "Address copied" : "Copy address"}</button>
-        {recheck && <button type="button" className="cb-btn cb-btn--ghost" disabled={recheck.reading} onClick={recheck.read}>{FUNDING_COPY.recheck}</button>}
-        <a className="cb-btn cb-btn--primary" href={FAUCET_URL} target="_blank" rel="noreferrer">Open Solana devnet faucet</a>
-      </p>
-      <p className="cb-fine" aria-live="polite">{status ?? FUNDING_COPY.faucet}</p>
-    </section>
+    <>
+      <span className="cb-num cb-addr">{display ?? value}</span>{" "}
+      <button type="button" className="cb-btn cb-btn--ghost" onClick={() => void copy()}>{status === COPIED ? "Copied" : label}</button>
+    </>
+  );
+}
+
+/**
+ * Funding helper for a wallet that cannot cover a ticket: the address, a copy button, the in-app devnet claim and a link
+ * out to the official Solana devnet faucet. What it says about the wallet comes from `fundingCopy`, so every surface
+ * renders the same state the same way, and `recheck` re-reads the one shared balance read: it is there because a failed
+ * read must not hide the helper, and it waits for the read it started because only the newest read may speak for the wallet.
+ *
+ * The claim button is the fast path the app owes a friend: `claimGate` (program.ts) asks the two on-chain tallies what
+ * this wallet may still take and never proposes more than the pool has left or than the lifetime allowance, so the
+ * button and the program agree on what is possible. A cap reached before the click uses the program's own error copy
+ * (`ERROR_COPY`), not new wording, and the external faucet stays on the page as the way through a drained pool.
+ */
+export function Faucet({ address, fund, recheck }: { address: string; fund: Funding; recheck?: { read: () => void; reading: boolean } }) {
+  const headingId = useId();
+  const { publicKey, sendTransaction } = useWallet();
+  const [busy, setBusy] = useState(false);
+  const [claimed, setClaimed] = useState<bigint>();
+  const [err, setErr] = useState<unknown>();
+  const [reads, setReads] = useState(0); // bumping this re-reads the tallies after a claim moves both of them
+  const { data: ledger } = useAsync(fetchFaucet, [reads]);
+  const { data: record } = useAsync(() => fetchClaimRecord(address), [address, reads]);
+  const gate = claimGate({ address, busy, remaining: faucetRemaining(ledger), claimed: record?.claimed });
+  const copy = fundingCopy(fund);
+
+  const claim = async () => {
+    if (gate.kind !== "claim") return;
+    setBusy(true); setErr(undefined);
+    try {
+      await claimSol(gate.amount, { publicKey, sendTransaction });
+      setClaimed(gate.amount);
+      setReads(reads + 1);
+      recheck?.read(); // the chain has had its say about what this wallet holds, so the read behind this card is stale
+    } catch (e) {
+      setErr(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (!copy && claimed == null) return null;
+  return (
+    <div>
+      {copy && (
+        <section className="cb-card cb-funding" aria-labelledby={headingId}>
+          <h2 id={headingId}>{copy.heading}</h2>
+          <p>{copy.note}</p>
+          <p className="cb-row"><Copyable value={address} /></p>
+          <p className="cb-row">
+            {recheck && <button type="button" className="cb-btn cb-btn--ghost" disabled={recheck.reading} onClick={recheck.read}>{FUNDING_COPY.recheck}</button>}
+            {gate.kind === "claim" && <button type="button" className="cb-btn cb-btn--primary" disabled={busy} onClick={() => void claim()}>{busy ? "Claiming…" : `Claim ${sol(gate.amount)}`}</button>}
+            <a className={`cb-btn cb-btn--${gate.kind === "claim" ? "ghost" : "primary"}`} href={FAUCET_URL} target="_blank" rel="noreferrer">Open Solana devnet faucet</a>
+          </p>
+          <p className="cb-fine" aria-live="polite">
+            {gate.kind === "capped" ? ERROR_COPY.ClaimLifetimeCap : gate.kind === "drained" ? ERROR_COPY.FaucetDrained : `${CLAIM_CAPS} ${FUNDING_COPY.faucet}`}
+          </p>
+          {gate.kind === "claim" && fund.kind === "empty" && (
+            <p className="cb-fine">A wallet holding nothing cannot pay its own transaction fee: top up once from the Solana faucet above, then claim here for the 0.11 SOL.</p>
+          )}
+        </section>
+      )}
+      {claimed != null && <p className="cb-muted" role="status">Claimed {sol(claimed)} into this wallet.</p>}
+      {err != null && <Err e={err} address={address} />}
+    </div>
   );
 }
 

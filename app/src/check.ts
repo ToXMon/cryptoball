@@ -1,7 +1,8 @@
 // Smallest runnable check for the pure logic: `pnpm test`.
 import assert from "node:assert/strict";
-import { quickPick, parts, FUNDING_COPY, sol, fundingCopy } from "./lib.ts";
-import { payout, ERROR_COPY, buyTicket, ProgramError, PROGRAM_ID, describeError, fundingNeeded, isFundingError, FAUCET_URL, FUNDING_ERROR, DEVNET_RPC, funding, payGate } from "./program.ts";
+import { createHash } from "node:crypto";
+import { quickPick, parts, FUNDING_COPY, CLAIM_CAPS, FINISHED_COPY, finishedCopy, sol, fundingCopy } from "./lib.ts";
+import { payout, ERROR_COPY, buyTicket, ProgramError, PROGRAM_ID, describeError, fundingNeeded, isFundingError, FAUCET_URL, FUNDING_ERROR, DEVNET_RPC, funding, payGate, CLAIM_LIFETIME_CAP, CLAIM_MAX, CLAIM_POOL_CAP, CAMPAIGN_ACCOUNT_DISC, DISCOVERY_CAP, claimGate, decodeCampaign, faucetRemaining, iWon, isSettleLog, outcome } from "./program.ts";
 import { readFileSync } from "node:fs";
 import { createBalanceRead, type BalanceState } from "./balance.ts";import { accountFromPrfOutput } from "./passkeyWallet.ts";
 
@@ -202,4 +203,123 @@ assert.deepEqual(site.connect_origins, [DEVNET_RPC, DEVNET_RPC.replace("https://
 for (const f of ["program.ts", "Wallet.tsx", "../../ops/open-game.mjs"]) {
   assert.ok(!readFileSync(new URL(f, import.meta.url), "utf8").includes("api.devnet.solana.com"), `api.devnet.solana.com reappeared in ${f}`);
 }
+// ---- discovery and the finished-game states
+
+// The app finds campaigns by the account discriminator, so that literal is a wire format: it is checked against the
+// committed IDL, not against itself. A campaign id that is remembered as [1] instead of read off the chain is the bug
+// that hid every draw but one.
+const idl = JSON.parse(readFileSync(new URL("../../ops/cryptoball.idl.json", import.meta.url), "utf8"));
+assert.deepEqual(CAMPAIGN_ACCOUNT_DISC, idl.accounts.find((a: { name: string }) => a.name === "Campaign").discriminator, "campaign discriminator must match the committed IDL");
+assert.ok(DISCOVERY_CAP > 0, "discovery must show something");
+
+// Anchor instruction tags are sha256("global:<name>")[0..8]: a wrong claim_sol tag is a claim that can never land.
+assert.deepEqual([...createHash("sha256").update("global:claim_sol").digest().subarray(0, 8)], [139, 113, 179, 189, 190, 30, 132, 195]);
+
+// The campaign layout is what the results page reads a finished draw out of, so it is decoded here from bytes laid out
+// exactly as state.rs serialises it (u64 id, u64 price, i64 close, u32 max, u32 count, u16 fee, u8 state, then pubkeys).
+const campaignBytes = (over: { state?: number; seedSlot?: bigint; committedAt?: bigint; randomness?: number[]; index?: number; numbers?: number[]; bonus?: number; fee?: bigint; prize?: bigint } = {}) => {
+  const b = new Uint8Array(213);
+  const view = new DataView(b.buffer);
+  b.set([50, 40, 49, 11, 157, 220, 229, 192]); // discriminator, not part of the layout
+  const ramp = (at: number) => { for (let i = 0; i < 32; i++) b[at + i] = i + 1; }; // a set pubkey, not the default all-ones one
+  view.setBigUint64(8, 7n, true);
+  view.setBigUint64(16, 100_000_000n, true);
+  view.setBigInt64(24, 1_790_000_000n, true);
+  view.setUint32(32, 1000, true);
+  view.setUint32(36, 12, true);
+  view.setUint16(40, 1000, true);
+  b[42] = over.state ?? 2;
+  ramp(75); // rand_account
+  view.setBigUint64(107, over.seedSlot ?? 9_000_000n, true);
+  view.setBigInt64(115, over.committedAt ?? 1_790_000_100n, true);
+  b.set(over.randomness ?? Array.from({ length: 32 }, (_, i) => i + 1), 123);
+  view.setUint32(155, over.index ?? 4, true);
+  ramp(159); // winner
+  b.set(over.numbers ?? [3, 11, 27, 44, 66], 191);
+  b[196] = over.bonus ?? 19;
+  view.setBigUint64(197, over.fee ?? 120_000_000n, true);
+  view.setBigUint64(205, over.prize ?? 1_080_000_000n, true);
+  return b;
+};
+const settledCampaign = decodeCampaign(campaignBytes());
+assert.deepEqual([settledCampaign.id, settledCampaign.ticketCount, settledCampaign.state], [7, 12, "Settled"]);
+assert.equal(settledCampaign.seedSlot, 9_000_000);
+assert.equal(settledCampaign.committedAt, 1_790_000_100);
+assert.equal(settledCampaign.randomness, [...Array(32).keys()].map((i) => (i + 1).toString(16).padStart(2, "0")).join(""));
+assert.deepEqual([settledCampaign.winningIndex, settledCampaign.winningNumbers, settledCampaign.winningBonus], [4, [3, 11, 27, 44, 66], 19]);
+assert.deepEqual([settledCampaign.feeLamports, settledCampaign.prizeLamports], [120_000_000n, 1_080_000_000n]);
+// An unsettled draw has none of that, and must not present zeros as if they meant something.
+const cancelled = decodeCampaign(campaignBytes({ state: 3, seedSlot: 0n, committedAt: 0n, randomness: new Array(32).fill(0), index: 0, numbers: new Array(5).fill(0), bonus: 0, fee: 0n, prize: 0n }));
+assert.deepEqual([cancelled.seedSlot, cancelled.committedAt, cancelled.randomness, cancelled.winningNumbers, cancelled.winningBonus, cancelled.feeLamports, cancelled.prizeLamports], [undefined, undefined, undefined, undefined, undefined, undefined, undefined]);
+
+// What a draw is to a reader is decided once, from the chain: settled, cancelled, committed-unrevealed, open. A settled
+// draw whose winning-ticket read failed is still "settled" - the numbers are missing, the outcome is not in doubt.
+assert.equal(outcome({ state: "Open" }), "open");
+assert.equal(outcome({ state: "Settled", winningIndex: 0, winner: "w" }), "settled");
+assert.equal(outcome({ state: "Settled" }), "settled"); // ticket read failed: still a settled draw
+assert.equal(outcome({ state: "Cancelled" }), "cancelled");
+assert.equal(outcome({ state: "DrawCommitted" }), "committed");
+assert.ok(iWon({ state: "Settled", winner: "me" }, "me"));
+assert.ok(!iWon({ state: "Settled", winner: "me" }, "you"));
+assert.ok(!iWon({ state: "Settled", winner: "me" }, undefined)); // not connected: nothing claimed about the viewer
+assert.ok(!iWon({ state: "Cancelled", winner: "me" }, "me")); // a cancelled draw has no winner, so nobody won
+
+// The settle transaction is found by its event, not by guessing which of the two transactions on the randomness
+// account settled: `DrawSettled` is only ever announced by settle_draw.
+assert.ok(isSettleLog(["Program log: Instruction: SettleDraw", "Program log: DrawSettled: campaign: 7"]));
+assert.ok(!isSettleLog(["Program log: Instruction: CommitDraw", "Program log: DrawCommitted: campaign: 7"]));
+assert.ok(!isSettleLog([]));
+
+// Every finished draw says what happened, in words, and never in a bare state word: no winner and a refund for the two
+// that end without one, the ticket that won for the one that does not.
+for (const state of ["cancelled", "committed", "open"] as const) {
+  assert.match(finishedCopy(state), /[a-z]{4,}/i);
+  assert.ok(!new RegExp(`^${state}\\b`, "i").test(finishedCopy(state)), `${state} must not be answered with its state word`);
+}
+assert.match(finishedCopy("cancelled"), /refund/i);
+assert.match(finishedCopy("cancelled"), /no ticket won/i);
+assert.match(finishedCopy("committed"), /no winner yet/i);
+assert.match(finishedCopy("committed"), /refund/i);
+assert.match(finishedCopy("settled", 4), /#4/);
+assert.match(FINISHED_COPY.committed, /reveal/i); // the reason: the reveal, not a bare word
+
+// ---- the in-app claim button
+// The three ceilings are the program's constants (constants.rs), read here from its source so a retune that reaches the app
+// is a retune that was checked, not a number somebody retyped.
+const CONSTANTS = readFileSync("../programs/cryptoball/src/constants.rs", "utf8");
+const constant = (name: string) => BigInt(new RegExp(`pub const ${name}: u64 = ([\\d_]+);`).exec(CONSTANTS)![1].replace(/_/g, ""));
+assert.equal(CLAIM_MAX, constant("MAX_CLAIM_LAMPORTS"));
+assert.equal(CLAIM_LIFETIME_CAP, constant("MAX_CLAIM_LIFETIME_LAMPORTS"));
+assert.equal(CLAIM_POOL_CAP, constant("INITIAL_POOL_LAMPORTS"));
+assert.equal(CLAIM_MAX, 110_000_000n); // the copy says 0.11 SOL; the button must offer exactly that
+assert.match(CLAIM_CAPS, /0\.11 SOL per claim/);
+assert.match(CLAIM_CAPS, /0\.33 SOL per wallet/);
+assert.match(CLAIM_CAPS, /1 SOL in the pool/);
+assert.equal(CLAIM_LIFETIME_CAP, CLAIM_MAX * 3n); // three tickets' worth
+
+// What the button may ask for is decided from the two on-chain tallies, so a button that says 0.11 SOL is a claim the
+// program will accept, and a wallet that is done is told the program's own reason rather than being left to find out.
+assert.deepEqual(claimGate({ address: "w", busy: false, remaining: 340_000_000n, claimed: 0n }), { kind: "claim", amount: 110_000_000n });
+assert.deepEqual(claimGate({ address: undefined, busy: false }), { kind: "connect" });
+assert.deepEqual(claimGate({ address: "w", busy: true, remaining: 340_000_000n }), { kind: "wait" });
+assert.deepEqual(claimGate({ address: "w", busy: false, remaining: 0n, claimed: 0n }), { kind: "drained" }); // pool exhausted: faucet link is the way out
+assert.deepEqual(claimGate({ address: "w", busy: false, remaining: 50_000_000n, claimed: 0n }), { kind: "claim", amount: 50_000_000n }); // claims the pool's remainder, not more
+assert.deepEqual(claimGate({ address: "w", busy: false, remaining: 340_000_000n, claimed: CLAIM_LIFETIME_CAP }), { kind: "capped" });
+assert.deepEqual(claimGate({ address: "w", busy: false, remaining: 340_000_000n, claimed: 220_000_000n }), { kind: "claim", amount: 110_000_000n });
+assert.deepEqual(claimGate({ address: "w", busy: false, remaining: 340_000_000n, claimed: 330_000_000n }), { kind: "capped" });
+// An unread ledger claims nothing: the button offers the program's own per-claim maximum, and the chain is the judge.
+assert.deepEqual(claimGate({ address: "w", busy: false, remaining: undefined, claimed: undefined }), { kind: "claim", amount: CLAIM_MAX });
+assert.deepEqual(claimGate({ address: "w", busy: false, remaining: 0n, claimed: CLAIM_LIFETIME_CAP }), { kind: "capped" }); // lifetime first: it is the reason this wallet gets nothing
+
+// What is left in the pool is what the admin budgeted minus what has gone out, never below zero and never guessed.
+assert.equal(faucetRemaining({ dispensed: 660_000_000n, pool: 1_000_000_000n }), 340_000_000n);
+assert.equal(faucetRemaining({ dispensed: 1_000_000_000n, pool: 1_000_000_000n }), 0n);
+assert.equal(faucetRemaining(undefined), undefined);
+
+// Every ceiling has copy of its own, and the app shows that copy rather than RPC text.
+for (const key of ["ClaimTooLarge", "ClaimLifetimeCap", "FaucetDrained", "FaucetEmpty"] as const) {
+  assert.ok(ERROR_COPY[key].length > 10, `${key} needs a sentence`);
+  assert.ok(!/0x[0-9a-f]{4}/i.test(ERROR_COPY[key]), `${key} must not leak a code`);
+}
+
 console.log("ok", known.address);
