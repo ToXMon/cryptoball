@@ -43,6 +43,86 @@ Instruction: `claim_sol`, args `amount: u64` (lamports, 1..=110_000_000).
 
 Event `SolClaimed { claimer, amount, lifetime_claimed, pool_dispensed }`.
 
+**A wallet at zero SOL cannot claim.** The first claim creates two PDAs (`claim`, and `faucet` if it is
+new) and the claimer pays their rent (about 0.0018 SOL) plus the tx fee. Devnet SOL for gas has to come
+from somewhere else (faucet.solana.com, or an existing wallet). The 0.11 SOL itself always comes from
+the faucet. The UI lane should ask for the gas top-up before showing the claim button, or send it from
+a warm wallet.
+
+### PDAs (devnet, program `GtdcPM3...`)
+
+| Account | Address |
+|---|---|
+| `faucet` | [`ENGP4XiyiMRmEPKnVkxY1PZ69kTARebud6hoz75r5n3b`](https://explorer.solana.com/address/ENGP4XiyiMRmEPKnVkxY1PZ69kTARebud6hoz75r5n3b?cluster=devnet) |
+| `faucet-vault` | [`BgtBRka9TEQa5revD2D1A46mG9rppXRqHF5F6h3tNyt`](https://explorer.solana.com/address/BgtBRka9TEQa5revD2D1A46mG9rppXRqHF5F6h3tNyt?cluster=devnet) |
+
+### Faucet receipts (devnet, 2026-10-03)
+
+Funded with the full 1.0 SOL. The wallet held 6.54 SOL before funding and **5.52266132 SOL after**.
+
+| Item | Value |
+|---|---|
+| Program upgrade tx (adds `claim_sol`) | [`5SSnfgMjMPHKP2dBjfL9U96KxkvHgPhYmbz26RZiQUKR3EL4PpFbYGGjT6ndtuAxECXSZrZ3efZ5Fy4G63tUL8xM`](https://explorer.solana.com/tx/5SSnfgMjMPHKP2dBjfL9U96KxkvHgPhYmbz26RZiQUKR3EL4PpFbYGGjT6ndtuAxECXSZrZ3efZ5Fy4G63tUL8xM?cluster=devnet) |
+| Faucet funding tx (1.0 SOL) | [`3LHGdeynWJb4YTSFAYLiSaBKwr8WVHGbfDZki5dsWvzpfxXxW9wHZNJz9psGTGzcugvLKFbPqzYcE2DpdVvDwVyR`](https://explorer.solana.com/tx/3LHGdeynWJb4YTSFAYLiSaBKwr8WVHGbfDZki5dsWvzpfxXxW9wHZNJz9psGTGzcugvLKFbPqzYcE2DpdVvDwVyR?cluster=devnet) |
+| Faucet vault after the run | `0.67` SOL (1.0 funded - 0.33 lifetime cap fully used) |
+
+Proven from a brand-new address, `DpKcFpzz9JMe3cvgGSCynxPMPGVWAuLgaCr3pSGqB5e3`, which was funded with
+0.02 SOL of gas first ([`2hzD1FiRQNPzfZCSyJJiRFhhMLM891BbfRgfVdPEfEvcznxn9WTNXmgC77b16DR3dtmNBQn7qaih85C3mbSY1qUY`](https://explorer.solana.com/tx/2hzD1FiRQNPzfZCSyJJiRFhhMLM891BbfRgfVdPEfEvcznxn9WTNXmgC77b16DR3dtmNBQn7qaih85C3mbSY1qUY?cluster=devnet))
+because the devnet airdrop was rate limited at the time:
+
+| Claim | Result | Tx |
+|---|---|---|
+| 0.11 SOL, fresh wallet | **succeeds** (balance 0.02 -> 0.1284 SOL, i.e. +0.1084 after rent and fees) | [`4Z9SGgTuFjDR8hXuHyCAyi4RUi4q6cK7yRtQeury4b3WhDLnUmg2DDFxFd6m9Sa5bX1N4qHZGr8pJpSZxnkj4zwE`](https://explorer.solana.com/tx/4Z9SGgTuFjDR8hXuHyCAyi4RUi4q6cK7yRtQeury4b3WhDLnUmg2DDFxFd6m9Sa5bX1N4qHZGr8pJpSZxnkj4zwE?cluster=devnet) |
+| 0.5 SOL, over the per-claim maximum | **rejected**, `ClaimTooLarge` (6019) | [`43oNQ9Y8uQ6frzhQ42iKLacYY6X8BumzVPG1kgTHfBYJtpmgZ6jbgCLBeEuHNTJtESfMVzxUDrPFNypX2CErsKnD`](https://explorer.solana.com/tx/43oNQ9Y8uQ6frzhQ42iKLacYY6X8BumzVPG1kgTHfBYJtpmgZ6jbgCLBeEuHNTJtESfMVzxUDrPFNypX2CErsKnD?cluster=devnet) |
+| 0.11 SOL, second | succeeds | [`3AmAcWQPDQ46t236TiskVicXBtVe5SukFAUPj6sj3BMfY3BcgSvsvekkby83CfUGMqdEvF5pd4yfnbEk7WQnEoAM`](https://explorer.solana.com/tx/3AmAcWQPDQ46t236TiskVicXBtVe5SukFAUPj6sj3BMfY3BcgSvsvekkby83CfUGMqdEvF5pd4yfnbEk7WQnEoAM?cluster=devnet) |
+| 0.11 SOL, third (lifetime total 0.33) | succeeds | [`5X72hLAjgDUuz5oXiT3kyK6NehqkQHMQJU6DvdWS8nPbgH718nodAhgSwwvqX4qAzXv36XUNgVi1UFrTZ9HMAuEb`](https://explorer.solana.com/tx/5X72hLAjgDUuz5oXiT3kyK6NehqkQHMQJU6DvdWS8nPbgH718nodAhgSwwvqX4qAzXv36XUNgVi1UFrTZ9HMAuEb?cluster=devnet) |
+| 0.01 SOL, over the lifetime ceiling | **rejected**, `ClaimLifetimeCap` (6020) | [`381fJs3YZrghAaAtVZMnUsTqNuLqiQykgHNwxWNEndZ5uJp1k3sYezHQsgCnutvLdqUfmJtk2GXbQ57adKzk6Ckm`](https://explorer.solana.com/tx/381fJs3YZrghAaAtVZMnUsTqNuLqiQykgHNwxWNEndZ5uJp1k3sYezHQsgCnutvLdqUfmJtk2GXbQ57adKzk6Ckm?cluster=devnet) |
+
+**Ticket money untouched.** Campaign 1's vault
+[`7iSvSBMT7fzk1Rei32AEaVpmhry2TvCQFEG6H8kdyJU5`](https://explorer.solana.com/address/7iSvSBMT7fzk1Rei32AEaVpmhry2TvCQFEG6H8kdyJU5?cluster=devnet)
+held `100000000` lamports immediately before the five claims above and `100000000` immediately after.
+The faucet vault's derivation contains no campaign key, so this is structural, not incidental.
+
+#### Deploying to devnet: what actually happened
+
+Operational history, because repeating this is painful and the obvious command does not work here.
+
+`solana program deploy` failed twice with **`Error: Data writes to account failed: Custom error: Max
+retries exceeded`** (after ~35 and ~60 minutes). The cause is not the program:
+
+- The deploy wallet needs about **2.75 SOL** for one attempt, because the loader's *buffer* account
+  holds 2.50133612 SOL of rent while the binary is staged. That rent is returned when the upgrade
+  succeeds, but an abandoned buffer keeps it, so a failed attempt must be cleaned up.
+- `api.devnet.solana.com` rate limits by IP. The CLI's buffer writes plus signature-status polling
+  trip the limit, the writes start failing, and it exhausts its retries. The endpoint is also load
+  balanced, so a blockhash returned by one node frequently fails preflight simulation on another
+  ("Blockhash not found"). The public alternatives are no better: Ankr and Alchemy need keys,
+  Chainstack and Helius need keys, `drpc.org` and `rpcpool.com` refuse or throttle.
+- Two orphan buffers (`F9YgeCAZyEPShEGaUSejCYgzzLJVTM3Y8f7k5LHB9bWA`, `7EouipyDP5ghNGXFZq1RMkAkSshjAFmEVLzDsg6Uwwkm`),
+  2.50133612 SOL each, were reclaimed with `solana program close <buffer> --keypair <dev wallet>`;
+  the buffer authority is the deploy wallet, so no separate key is needed. Nothing is stuck.
+
+**What worked:** `scripts/write-buffer.js` creates the loader buffer and fills it itself, 850 bytes per
+transaction with a 2 s gap, using only the two trivial loader instructions (`InitializeBuffer`,
+`Write`). 580 chunks took about 46 minutes and never hit a 429. Then:
+
+```
+node scripts/write-buffer.js target/deploy/cryptoball.so /tmp/faucet-buffer.json
+solana program deploy target/deploy/cryptoball.so \
+  --program-id GtdcPM3LTX8G8pB1bVW1jWfuxTj3kZmD3axt4Q7whBpC \
+  --keypair ~/.tape/cryptoball-deploy.json --buffer /tmp/faucet-buffer.json \
+  --max-len 492216 --use-rpc
+```
+
+The CLI finds the buffer already full, so it does no writes at all and only performs the upgrade.
+Programdata was already resized to 492,261 bytes and funded to 2,501,336,120 lamports (exactly
+rent-exempt at this cluster's 5080 lamports/byte over two years) by the earlier attempts.
+
+If you ever deploy this again, budget **2.75 SOL up front** and use the script; a dedicated devnet RPC
+would remove the 2 s gap and most of the 46 minutes.
+
+`scripts/faucet-proof.js` regenerates the claim receipts above.
+
 | Error code | Number | Message |
 |---|---|---|
 | `ClaimTooLarge` | 6019 | Claim amount is zero or above the per-claim maximum |
@@ -58,6 +138,7 @@ programs/cryptoball/   Anchor program (instructions, state, events, errors, cons
 tests/                 ts-mocha + LiteSVM: harness.ts, one test file per instruction, lifecycle; fixtures/mpl_core.so = devnet Core binary
 app/                   React + Vite player app (Prime Time design, 3D ticket, draw-night ball drop); src/tokens.css = design tokens; src/program.ts = devnet program adapter (builds Anchor instructions); src/passkeyWallet.ts = passkey (Wallet Standard) wallet
 docs/                  requirements, design, diagrams
+scripts/                write-buffer.js (devnet upgrade through the RPC rate limit), faucet-proof.js (claim receipts)
 ```
 
 ## Toolchain (pinned)
