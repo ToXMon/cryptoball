@@ -56,7 +56,7 @@ All program-owned accounts carry the Anchor 8-byte discriminator. Bumps are stor
 | Core asset (ticket NFT) | Metaplex Core | fresh keypair signer at buy | per ticket | owner = buyer; collection; Attributes n1..n5, bonus | buy_ticket (CPI) |
 | Randomness account | Switchboard On-Demand | keypair created by the keeper through the Switchboard SDK | per draw | read-only for us | Switchboard commit and reveal |
 | Treasury | System program | n/a | global | a plain wallet; address equals `Config.treasury` | receives the fee |
-| Faucet | cryptoball | `["faucet"]` | global | dispensed (total ever paid out); created by the first claim | claim_sol |
+| Faucet | cryptoball | `["faucet-v2"]` | global | dispensed (total ever paid out), pool_lamports (admin-set budget); created ONLY by initialize_faucet | initialize_faucet (create), claim_sol (dispensed), update_faucet_pool (pool_lamports) |
 | Faucet vault | System program | `["faucet-vault"]` | global | lamports only; funded by a plain transfer from the deploy wallet | claim_sol (debit only) |
 | ClaimRecord | cryptoball | `["claim", claimer]` | per wallet | claimer, claimed (lifetime total) | claim_sol |
 
@@ -82,6 +82,9 @@ Legend: S = signer, W = writable. "Payer" S+W pays rent. Every account not in th
 | 8 | `settle_draw` | none | payer S+W, config, campaign W, randomness (read), ticket (read), vault W, treasury W, winner_wallet W (= ticket.buyer), system | DrawCommitted; randomness key and seed_slot equal stored; `get_value(clock.slot)` succeeds (so reveal ran in the same tx, otherwise revert); `winner::winning_index`; supplied Ticket is the PDA for that index and `winner_wallet == ticket.buyer`; fee/prize math; two PDA-signed system transfers; store randomness, index, winner; state Settled; emit | R-43..R-54, R-78 |
 | 9 | `cancel_campaign` | none | payer S, campaign W | (Open, `now >= close_ts`, count 0) or (DrawCommitted, `now > committed_at + REVEAL_TIMEOUT_SECS`); state Cancelled; emit | R-55, R-56, R-60 |
 | 10 | `refund_ticket` | none | payer S, campaign, ticket W, vault W, buyer_wallet W (= ticket.buyer), system | Cancelled; ticket Active; PDA-signed transfer of `campaign.price` to buyer; status Refunded; emit | R-58, R-59, R-79, R-80 |
+| 11 | `initialize_faucet` | pool_lamports, starting_dispensed | admin S+W (payer), config, faucet W (init), faucet_vault W, system | `has_one = admin`; `0 < pool_lamports <= INITIAL_POOL_LAMPORTS`; `starting_dispensed <= pool_lamports`; creates the ONLY faucet ledger; emit FaucetConfigured. DEVNET ONLY (D10) | - |
+| 12 | `update_faucet_pool` | pool_lamports | admin S, config, faucet W | `has_one = admin`; `pool_lamports >= faucet.dispensed`; this is what makes a refill restore service. DEVNET ONLY | - |
+| 13 | `claim_sol` | amount | claimer S+W, claim_record W (init_if_needed), faucet W, faucet_vault W, system | Ledger already exists - NO creation path; `0 < amount <= MAX_CLAIM_LAMPORTS`; `claimed + amount <= MAX_CLAIM_LIFETIME_LAMPORTS`; `dispensed + amount <= faucet.pool_lamports`; vault keeps its rent-exempt minimum; PDA-signed transfer to the SIGNER; emit SolClaimed. DEVNET ONLY | - |
 
 Pause (R-09, R-10) is a Config flag read only by `buy_ticket`; commit, settle, cancel and refund ignore it (R-87), so funds can never be trapped by a paused or lost admin.
 
@@ -195,7 +198,9 @@ Lottery and funds threats:
 | T15 | Rent-exempt breakage on transfers to empty accounts | Price floor 2,000,000 lamports; treasury must hold the rent-exempt minimum when set | R-15, R-51 | price below floor fails |
 | T16 | Arbitrary CPI target | Program ids pinned; typed `Program<>` | R-73 | attacker program id fails |
 | T17 | Panics on user input | Typed errors, no `unwrap`/`expect` on user paths | R-72 | fuzzed inputs never abort |
-| T18 | Faucet drains the lottery, or one wallet drains the faucet | The faucet vault PDA's derivation contains no campaign key, so `vault_pay` and every ticket/prize/refund path cannot reach it. Three on-chain ceilings (per claim, per-wallet lifetime, pool total) are program constants, never instruction arguments | - | `08_faucet.test.ts`: caps, wallet/vault separation, settlement unchanged |
+| T18 | Faucet drains the lottery, or one wallet drains the faucet | The faucet vault PDA's derivation contains no campaign key, so `vault_pay` and every ticket/prize/refund path cannot reach it. Per-claim and per-wallet-lifetime ceilings are program constants, never instruction arguments; the pool budget is admin-set and hard-backed by the vault balance | - | `08_faucet.test.ts`: caps, wallet/vault separation, settlement unchanged |
+| T20 | Faucet bricked by a squatted ledger PDA | The ledger and its vault are created only by the admin-signed `initialize_faucet`; `claim_sol` references the ledger with no `init`/`init_if_needed` path, so no user call can create, initialise or write it | D10 | `08_faucet.test.ts`: squat attempts leave the ledger bytes intact; claim fails before init, works after |
+| T21 | Per-wallet claim record squatted | `ClaimRecord` stays `init_if_needed` because it is keyed by the claimer's own key: squatting one address costs 0.0009 SOL and can only deny that one wallet. Accepted for a devnet faucet; an admin close/re-init path is the upgrade if it ever matters | D10 | documented residual, untested |
 | T19 | Faucet abused on a real-money deployment | Accepted for devnet, where SOL is worthless and unauthenticated. Mainnet gate: `claim_sol` and every constant under the faucet block must be deleted before a mainnet deploy, because there is no identity behind a wallet and the caps are Sybil-weak (many wallets = many caps) | D10 | n/a (deployment gate, not a test) |
 
 ## 12. Open risks and the spike gate
@@ -215,7 +220,9 @@ AI red-team and override log (G2): the pre-review findings 1 to 7 in `research-a
 
 ## 13. Events (R-34, R-54, R-60, R-76, R-80)
 
-`ConfigChanged`, `CampaignCreated`, `TicketPurchased`, `DrawCommitted`, `DrawSettled`, `CampaignCancelled`, `TicketRefunded` (`programs/cryptoball/src/events.rs`). Every state change emits one.
+`ConfigChanged`, `CampaignCreated`, `TicketPurchased`, `DrawCommitted`, `DrawSettled`, `CampaignCancelled`, `TicketRefunded`, plus the devnet faucet's `FaucetConfigured` and `SolClaimed` (`programs/cryptoball/src/events.rs`). Every state change emits one.
+
+The faucet instructions (rows 11-13) carry no R-xx because `docs/requirements.md` is the frozen, machine-checked v0.2 pack and re-cutting it is a separate, deliberate act. They are specified here and in the README instead, and are devnet-only.
 
 ## 14. Traceability (both directions)
 

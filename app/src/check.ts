@@ -5,6 +5,23 @@ import { payout, ERROR_COPY, buyTicket, ProgramError, PROGRAM_ID, describeError,
 import { readFileSync } from "node:fs";
 import { createBalanceRead, type BalanceState } from "./balance.ts";import { accountFromPrfOutput } from "./passkeyWallet.ts";
 
+// The invariant is "every CryptoballError variant has English copy". Assert it against the real
+// variant list in errors.rs rather than a hardcoded count: a hardcoded number passes happily while
+// the thing it names is broken, which is exactly how this went stale when the faucet landed.
+const ERROR_VARIANTS = readFileSync("../programs/cryptoball/src/errors.rs", "utf8")
+  .split("pub enum CryptoballError")[1]
+  .split("\n}")
+  .join("\n")
+  .split("\n")
+  .map((l) => /^\s+([A-Z][A-Za-z0-9]*),\s*$/.exec(l)?.[1])
+  .filter((n): n is string => Boolean(n));
+assert.ok(ERROR_VARIANTS.length > 0, "could not parse CryptoballError variants from errors.rs");
+assert.deepEqual(
+  Object.keys(ERROR_COPY).sort(),
+  [...ERROR_VARIANTS].sort(),
+  "ERROR_COPY is out of step with the program's CryptoballError variants",
+);
+
 assert.deepEqual(payout({ priceLamports: 100_000_000n, ticketCount: 10, feeBps: 1000 }), { pool: 1_000_000_000n, fee: 100_000_000n, prize: 900_000_000n });
 assert.equal(payout({ priceLamports: 3n, ticketCount: 1, feeBps: 1000 }).fee, 0n); // floor
 for (let i = 0; i < 500; i++) {
@@ -14,7 +31,6 @@ for (let i = 0; i < 500; i++) {
   assert.ok(bonus >= 1 && bonus <= 26);
 }
 assert.deepEqual(parts(90061), { d: 1, h: 1, m: 1, s: 1 });
-assert.equal(Object.keys(ERROR_COPY).length, 19); // keep in step with errors.rs
 assert.equal(PROGRAM_ID.toBase58(), "GtdcPM3LTX8G8pB1bVW1jWfuxTj3kZmD3axt4Q7whBpC"); // devnet program, README receipts
 await assert.rejects(buyTicket("w", 1, [5, 5, 6, 7, 8], 1), (e) => e instanceof ProgramError && e.code === "InvalidNumbers");
 

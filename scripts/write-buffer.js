@@ -18,10 +18,9 @@ const RPC = process.env.RPC || "https://api.devnet.solana.com";
 const SO = process.argv[2];
 const OUT = process.argv[3];
 const LOADER = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111");
-const RENT_PER_BYTE = 5080;   // lamports/byte-year x2 years: what this cluster charges (verified against programdata)
 const BUFFER_METADATA = 37;   // UpgradeableLoaderState::size_of_buffer(program_len) - program_len
 const CHUNK = 850;            // keeps the transaction under the 1232-byte limit
-const GAP_MS = 2000;
+const GAP_MS = Number(process.env.GAP_MS || 2000);
 
 const payer = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(process.env.HOME + "/.tape/cryptoball-deploy.json", "utf8"))));
 const bufKp = fs.existsSync(OUT)
@@ -31,7 +30,6 @@ fs.writeFileSync(OUT, JSON.stringify(Array.from(Uint8Array.from(bufKp.secretKey)
 
 const program = fs.readFileSync(SO);
 const bufLen = BUFFER_METADATA + program.length;
-const rent = (128 + bufLen) * RENT_PER_BYTE;
 
 const conn = new Connection(RPC, "confirmed");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -85,7 +83,10 @@ async function send(ixs, extraSigners, label) {
 }
 
 (async () => {
-  log(`buffer ${bufKp.publicKey.toBase58()} space=${bufLen} rent=${rent} program=${program.length}B`);
+  // Ask the cluster what rent-exempt actually costs. Never hardcode a lamports-per-byte rate here:
+  // it has already drifted once on this cluster, and a stale constant silently under-funds the buffer.
+  const rent = Number(await rpc(() => conn.getMinimumBalanceForRentExemption(bufLen)));
+  log(`buffer ${bufKp.publicKey.toBase58()} space=${bufLen} rent=${rent} (from getMinimumBalanceForRentExemption) program=${program.length}B`);
   log(`payer ${(await rpc(() => conn.getBalance(payer.publicKey)))} lamports`);
 
   // CreateAccount + InitializeBuffer must share ONE transaction, otherwise a third party
@@ -133,4 +134,4 @@ async function send(ixs, extraSigners, label) {
     await sleep(GAP_MS);
   }
   log("BUFFER COMPLETE - hand /tmp/faucet-buffer.json to solana program deploy --buffer");
-})().catch((e) => { log("FATAL " + e.message); process.exit(1); });
+})().catch((e) => { log("FATAL " + e.message); console.error(e.stack); process.exit(1); });
