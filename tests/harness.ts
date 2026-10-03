@@ -30,7 +30,7 @@ export const configPda = () => pda([Buffer.from("config")]);
 export const campaignPda = (id: bigint) => pda([Buffer.from("campaign"), u64le(id)]);
 export const vaultPda = (c: PublicKey) => pda([Buffer.from("vault"), c.toBuffer()]);
 export const ticketPda = (c: PublicKey, i: number) => pda([Buffer.from("ticket"), c.toBuffer(), u32le(i)]);
-export const faucetPda = () => pda([Buffer.from("faucet")]);
+export const faucetPda = () => pda([Buffer.from("faucet-v2")]);
 export const faucetVaultPda = () => pda([Buffer.from("faucet-vault")]);
 export const claimPda = (claimer: PublicKey) => pda([Buffer.from("claim"), claimer.toBuffer()]);
 // Faucet ceilings are program constants (constants.rs); mirrored here only to assert the numbers.
@@ -216,18 +216,34 @@ export class World {
 
   // ---- devnet faucet (tests/08_faucet.test.ts)
   /** Credit the dedicated faucet vault the way the deploy wallet does: a plain system transfer. */
-  fundFaucet(sol = 1n, from = this.admin) {
-    this.ok([SystemProgram.transfer({ fromPubkey: from.publicKey, toPubkey: faucetVaultPda(), lamports: sol * SOL })], [from]);
+  fundFaucet(lamports = 1_000_000_000n, from = this.admin) {
+    this.ok([SystemProgram.transfer({ fromPubkey: from.publicKey, toPubkey: faucetVaultPda(), lamports })], [from]);
   }
-  claimIx(claimer: Keypair, amount: bigint, o: { recipient?: PublicKey; vault?: PublicKey } = {}) {
+  claimIx(claimer: Keypair, amount: bigint, o: { vault?: PublicKey } = {}) {
     return this.m.claimSol(new anchor.BN(amount.toString())).accountsPartial({
-      claimer: claimer.publicKey, recipient: o.recipient ?? claimer.publicKey,
-      claimRecord: claimPda(claimer.publicKey), faucet: faucetPda(),
-      faucetVault: o.vault ?? faucetVaultPda(), systemProgram: SystemProgram.programId,
+      claimer: claimer.publicKey, claimRecord: claimPda(claimer.publicKey),
+      faucet: faucetPda(), faucetVault: o.vault ?? faucetVaultPda(),
+      systemProgram: SystemProgram.programId,
     }).instruction();
   }
   async claim(claimer: Keypair, amount: bigint) {
     return this.ok([await this.claimIx(claimer, amount)], [claimer]);
+  }
+  /** Admin path: fund the vault, then create the ledger. Nothing a user calls can do either. */
+  initFaucetIx(poolLamports = 1_000_000_000n, startingDispensed = 0n, admin = this.admin) {
+    return this.m.initializeFaucet(new anchor.BN(poolLamports.toString()), new anchor.BN(startingDispensed.toString()))
+      .accountsPartial({
+        admin: admin.publicKey, config: configPda(), faucet: faucetPda(),
+        faucetVault: faucetVaultPda(), systemProgram: SystemProgram.programId,
+      }).instruction();
+  }
+  async initFaucet(poolLamports = 1_000_000_000n, startingDispensed = 0n) {
+    return this.ok([await this.initFaucetIx(poolLamports, startingDispensed)], [this.admin]);
+  }
+  updatePoolIx(poolLamports: bigint, admin = this.admin) {
+    return this.m.updateFaucetPool(new anchor.BN(poolLamports.toString())).accountsPartial({
+      admin: admin.publicKey, config: configPda(), faucet: faucetPda(),
+    }).instruction();
   }
 }
 

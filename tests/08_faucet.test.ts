@@ -1,16 +1,17 @@
 // Devnet SOL faucet (claim_sol). This is money-handling code, so the tests are the point:
 // every ceiling is asserted on-chain, and the last tests prove the faucet cannot touch the
 // lottery money (ticket proceeds, prize, refund) at any point.
-import { Keypair } from "@solana/web3.js";
+import { Keypair, SystemProgram } from "@solana/web3.js";
 import { expect } from "chai";
-import { World, MAX_CLAIM, LIFETIME_CAP, POOL_CAP, faucetPda, faucetVaultPda, claimPda, PRICE, valueFor } from "./harness";
+import { World, PROGRAM_ID, MAX_CLAIM, LIFETIME_CAP, POOL_CAP, faucetPda, faucetVaultPda, claimPda, PRICE, valueFor } from "./harness";
 
 describe("claim_sol (devnet faucet)", () => {
   let w: World, user: Keypair;
   beforeEach(async () => {
     w = new World(); await w.init();
     user = Keypair.generate(); w.fund(user);
-    w.fundFaucet(1n);
+    w.fundFaucet();
+    await w.initFaucet();          // admin path only; claim_sol cannot create the ledger
   });
   const newUser = () => { const k = Keypair.generate(); w.fund(k); return k; };
   /** The pool tally only exists after the first successful claim. */
@@ -56,7 +57,7 @@ describe("claim_sol (devnet faucet)", () => {
 
   it("global pool ceiling: claims stop at 1.0 SOL even with a fresh wallet every time", async () => {
     // vault funded well above the pool ceiling, so the ceiling under test is the state tally, not the balance
-    w.fundFaucet(5n);
+    w.fundFaucet(5_000_000_000n);
     let left = POOL_CAP;
     while (left > 0n) {
       const amt = left > MAX_CLAIM ? MAX_CLAIM : left;
@@ -86,16 +87,59 @@ describe("claim_sol (devnet faucet)", () => {
     expect(w.bal(vault)).to.equal(1_000_000n); // untouched
   });
 
-  it("claims only ever pay the signer; a swapped recipient or vault is rejected", async () => {
-    const other = newUser();
-    const stranger = new Keypair().publicKey;
-    const before = [w.bal(other.publicKey), w.bal(stranger), w.bal(faucetVaultPda())];
-    w.fails([await w.claimIx(user, MAX_CLAIM, { recipient: other.publicKey })], [user], "BadAccount");
-    w.fails([await w.claimIx(user, MAX_CLAIM, { recipient: stranger })], [user], "BadAccount");
-    w.fails([await w.claimIx(user, MAX_CLAIM, { vault: new Keypair().publicKey })], [user], "BadAccount");
-    expect(dispensed()).to.equal("0");
-    // no lamport reached the third party, the fake recipient, or the vault
-    expect([w.bal(other.publicKey), w.bal(stranger), w.bal(faucetVaultPda())]).to.deep.equal(before);
+  it("T20 regression: the ledger PDA cannot be poisoned once the admin has created it", async () => {
+    const w2 = new World(); await w2.init(); w2.fundFaucet(); await w2.initFaucet();
+    const before = w2.svm.getAccount(faucetPda())!.data.length;
+
+    // Attack 1, as published: SystemProgram.createAccount at the faucet's own seeds with zero data.
+    // Unconstructible: CreateAccount requires the new account to sign and nobody holds a PDA key.
+
+    // Attack 2, the one that actually worked: a plain lamport transfer squats the address. After the
+    // admin has created the ledger this fails outright - the account is program-owned, so the system
+    // program refuses to transfer into it - and the ledger is untouched.
+    const squatter = Keypair.generate(); w2.fund(squatter);
+    w2.send([SystemProgram.transfer({ fromPubkey: squatter.publicKey, toPubkey: faucetPda(), lamports: 894080 })], [squatter]);
+    // Whatever the runtime decides, the ledger's bytes are untouched - the squat cannot corrupt it.
+    expect(w2.svm.getAccount(faucetPda())!.data.length).to.equal(before);
+
+    // Claims are unaffected.
+    const k = Keypair.generate(); w2.fund(k);
+    await w2.claim(k, MAX_CLAIM);
+    expect(w2.acct("faucet", faucetPda()).dispensed.toString()).to.equal(MAX_CLAIM.toString());
+  });
+
+  it("T20 regression: claim_sol before the admin initializes the faucet fails", async () => {
+    const w2 = new World(); await w2.init();
+    const k = Keypair.generate(); w2.fund(k);
+    w2.fails([await w2.claimIx(k, MAX_CLAIM)], [k], "AccountNotInitialized");
+    expect(w2.svm.getAccount(faucetPda())).to.equal(null);
+  });
+
+  it("T20 regression: only the admin can initialize or re-budget the faucet", async () => {
+    const w2 = new World(); await w2.init(); w2.fundFaucet();
+    const stranger = Keypair.generate(); w2.fund(stranger);
+    w2.fails([await w2.initFaucetIx(1_000_000_000n, 0n, stranger)], [stranger], "Unauthorized");
+    expect(w2.svm.getAccount(faucetPda())).to.equal(null);
+    await w2.initFaucet();
+    w2.fails([await w2.updatePoolIx(2_000_000_000n, stranger)], [stranger], "Unauthorized");
+    w2.ok([await w2.updatePoolIx(2_000_000_000n)], [w2.admin]);   // admin can raise it
+  });
+
+  it("refill actually works: raising the ceiling reopens a drained faucet", async () => {
+    const small = new World(); await small.init(); small.fundFaucet(500_000_000n);
+    await small.initFaucet(LIFETIME_CAP); // exactly three max claims
+    const a = Keypair.generate(); small.fund(a);
+    await small.claim(a, MAX_CLAIM);
+    await small.claim(a, MAX_CLAIM);
+    await small.claim(a, MAX_CLAIM);          // lifetime cap, not the pool
+    const b = Keypair.generate(); small.fund(b);
+    small.fails([await small.claimIx(b, MAX_CLAIM)], [b], "FaucetDrained");
+    // A bare transfer does NOT help: the ceiling is what is shut.
+    small.fundFaucet(1_000_000_000n);
+    small.fails([await small.claimIx(b, MAX_CLAIM)], [b], "FaucetDrained");
+    // The admin raises the budget, and the claim that just failed now succeeds.
+    small.ok([await small.updatePoolIx(1_500_000_000n)], [small.admin]);
+    await small.claim(b, MAX_CLAIM);
   });
 
   it("the faucet is permissionless: a wallet nobody knows about gets the same 0.11", async () => {

@@ -283,15 +283,45 @@ pub mod cryptoball {
         Ok(())
     }
 
+    /// DEVNET SOL FAUCET - admin. Creates the faucet ledger. This is the ONLY path that can create it:
+    /// `claim_sol` takes the ledger as a plain pre-existing account, so no user call can create,
+    /// initialise or write it. That closes the init_if_needed front-running hole (design.md T20):
+    /// a third party who squats the PDA with a zero-data account can no longer brick the faucet,
+    /// and cannot get the program to sign for the vault either.
+    ///
+    /// `pool_lamports` is the total budgeted for dispensing, capped at INITIAL_POOL_LAMPORTS.
+    /// `starting_dispensed` carries the tally forward when migrating from an earlier ledger.
+    pub fn initialize_faucet(ctx: Context<InitializeFaucet>, pool_lamports: u64, starting_dispensed: u64) -> Result<()> {
+        require!(pool_lamports > 0 && pool_lamports <= INITIAL_POOL_LAMPORTS, E::InvalidParams);
+        require!(starting_dispensed <= pool_lamports, E::InvalidParams);
+        let c = &mut ctx.accounts.faucet;
+        c.dispensed = starting_dispensed;
+        c.pool_lamports = pool_lamports;
+        emit!(FaucetConfigured { faucet: c.key(), pool_lamports, dispensed: starting_dispensed });
+        Ok(())
+    }
+
+    /// DEVNET SOL FAUCET - admin. Raises (or lowers, never below what is already dispensed) the total
+    /// budgeted for dispensing. This is what makes a refill work: transfer SOL to `faucet-vault`,
+    /// then raise the ceiling. Left unraised, a drained faucet stays shut no matter how much SOL is
+    /// added, because `dispensed` only ever increases.
+    pub fn update_faucet_pool(ctx: Context<UpdateFaucet>, pool_lamports: u64) -> Result<()> {
+        let c = &mut ctx.accounts.faucet;
+        require!(pool_lamports >= c.dispensed, E::InvalidParams);
+        c.pool_lamports = pool_lamports;
+        emit!(FaucetConfigured { faucet: c.key(), pool_lamports, dispensed: c.dispensed });
+        Ok(())
+    }
+
     /// DEVNET SOL FAUCET. Permissionless: any wallet may claim. NEVER ship this on a real-money
     /// deployment (docs/design.md section 11).
     ///
     /// Signer: any claimer (no allowlist - there is no identity behind a wallet, so the caps are
-    /// Sybil-weak by construction; FAUCET_POOL_LAMPORTS is the real backstop). `recipient` is pinned
-    /// to the signer, so nobody can route a claim to a third party.
+    /// Sybil-weak by construction; the vault balance and the admin-set pool ceiling are the real
+    /// backstops). The transfer target is the signer, so a claim can only ever pay the caller.
     ///
-    /// Three on-chain ceilings, all program constants the client cannot touch: `amount` <= 0.11 SOL
-    /// (per claim), the caller's lifetime total <= 0.33 SOL, and the pool total ever dispensed <= 1.0 SOL.
+    /// Two per-caller on-chain ceilings, program constants the client cannot touch: `amount` <= 0.11
+    /// SOL and the caller's lifetime total <= 0.33 SOL. The third is the admin-set pool ceiling.
     /// The only money moved is from the `faucet-vault` PDA, whose derivation contains no campaign key,
     /// so this instruction cannot reach ticket proceeds, a prize or a refund.
     pub fn claim_sol(ctx: Context<ClaimSol>, amount: u64) -> Result<()> {
@@ -300,7 +330,7 @@ pub mod cryptoball {
         let lifetime = ctx.accounts.claim_record.claimed.checked_add(amount).ok_or(E::Overflow)?;
         require!(lifetime <= MAX_CLAIM_LIFETIME_LAMPORTS, E::ClaimLifetimeCap);
         let dispensed = ctx.accounts.faucet.dispensed.checked_add(amount).ok_or(E::Overflow)?;
-        require!(dispensed <= FAUCET_POOL_LAMPORTS, E::FaucetDrained);
+        require!(dispensed <= ctx.accounts.faucet.pool_lamports, E::FaucetDrained);
 
         // Keep the vault rent-exempt whatever we take out; a zero-length system account is rejected at runtime.
         let free = ctx.accounts.faucet_vault.lamports().saturating_sub(Rent::get()?.minimum_balance(0));
@@ -310,7 +340,7 @@ pub mod cryptoball {
         transfer(
             CpiContext::new_with_signer(
                 ctx.accounts.system_program.to_account_info(),
-                Transfer { from: ctx.accounts.faucet_vault.to_account_info(), to: ctx.accounts.recipient.to_account_info() },
+                Transfer { from: ctx.accounts.faucet_vault.to_account_info(), to: ctx.accounts.claimer.to_account_info() },
                 &[seeds],
             ),
             amount,
@@ -506,25 +536,49 @@ pub struct RefundTicket<'info> {
     pub system_program: Program<'info, System>,
 }
 
-// ---- Devnet faucet accounts. Both PDAs are init_if_needed (the first claimer pays their rent);
-// the vault is a plain system account holding only devnet SOL, never campaign funds.
+// ---- Devnet faucet accounts.
+// The ledger is admin-created and referenced here WITHOUT any creation path: a user call can never
+// create, initialise or write it (design.md T20). The vault is a plain system account funded only by
+// transfers from the admin wallet. ClaimRecord stays init_if_needed: it is keyed by the claimer's own
+// public key, so squatting one costs 0.0009 SOL and can only ever deny that single wallet (design.md T21).
 #[derive(Accounts)]
 pub struct ClaimSol<'info> {
     #[account(mut)]
     pub claimer: Signer<'info>,
-    /// Pinned to the signer: a claim can only ever pay the wallet that signed it.
-    #[account(mut, address = claimer.key() @ E::BadAccount)]
-    pub recipient: SystemAccount<'info>,
     #[account(
         init_if_needed, payer = claimer, space = 8 + ClaimRecord::INIT_SPACE,
         seeds = [CLAIM_SEED, claimer.key().as_ref()], bump
     )]
     pub claim_record: Account<'info, ClaimRecord>,
-    #[account(init_if_needed, payer = claimer, space = 8 + Faucet::INIT_SPACE, seeds = [FAUCET_SEED], bump)]
+    /// Pre-existing, admin-created. No `init`, no `init_if_needed`.
+    #[account(mut, seeds = [FAUCET_SEED], bump = Pubkey::find_program_address(&[FAUCET_SEED], &crate::ID).1)]
     pub faucet: Account<'info, Faucet>,
     /// The dedicated faucet vault: the canonical PDA for ["faucet-vault"], recomputed rather than
     /// taken from client input so the CPI signer seeds always match the account the caller passed.
     #[account(mut, address = Pubkey::find_program_address(&[FAUCET_VAULT_SEED], &crate::ID).0 @ E::BadAccount)]
     pub faucet_vault: SystemAccount<'info>,
     pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct InitializeFaucet<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    #[account(seeds = [CONFIG_SEED], bump = config.bump, has_one = admin @ E::Unauthorized)]
+    pub config: Account<'info, Config>,
+    #[account(init, payer = admin, space = 8 + Faucet::INIT_SPACE, seeds = [FAUCET_SEED], bump)]
+    pub faucet: Account<'info, Faucet>,
+    /// Must already exist: the admin funds the vault with a plain transfer, then initializes here.
+    #[account(mut, address = Pubkey::find_program_address(&[FAUCET_VAULT_SEED], &crate::ID).0 @ E::BadAccount)]
+    pub faucet_vault: SystemAccount<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct UpdateFaucet<'info> {
+    pub admin: Signer<'info>,
+    #[account(seeds = [CONFIG_SEED], bump = config.bump, has_one = admin @ E::Unauthorized)]
+    pub config: Account<'info, Config>,
+    #[account(mut, seeds = [FAUCET_SEED], bump = Pubkey::find_program_address(&[FAUCET_SEED], &crate::ID).1)]
+    pub faucet: Account<'info, Faucet>,
 }

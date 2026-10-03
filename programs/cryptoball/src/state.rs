@@ -15,13 +15,18 @@ pub struct Config {
     pub bump: u8,
 }
 
-/// Devnet faucet ledger. Seeds: ["faucet"]. Created by the first claim; funded only by the admin wallet
-/// transferring into the `faucet-vault` PDA. Holds nothing but the pool tally, never campaign funds.
+/// Devnet faucet ledger. Seeds: ["faucet-v2"]. Created ONLY by the admin-signed `initialize_faucet`;
+/// no user-reachable instruction can create, initialise or write it (see design.md T20).
+/// The v1 ledger (`["faucet"]`, a bare `dispensed` u64) is already initialised on devnet, so the
+/// tally moved to a new seed rather than mutating a live account's layout.
 #[account]
 #[derive(InitSpace)]
 pub struct Faucet {
-    /// Total lamports ever dispensed. The pool ceiling is the constant FAUCET_POOL_LAMPORTS.
+    /// Total lamports ever dispensed under this ledger. Carried forward from v1 at initialization.
     pub dispensed: u64,
+    /// Total the admin has budgeted for dispensing. `update_faucet_pool` raises it, which is what
+    /// makes a refill actually restore service; the hard backstop below it is the vault balance.
+    pub pool_lamports: u64,
 }
 
 /// One wallet's lifetime faucet tally. Seeds: ["claim", claimer].

@@ -16,3 +16,5 @@ pub struct CampaignCancelled { pub campaign: Pubkey }
 pub struct TicketRefunded { pub campaign: Pubkey, pub index: u32, pub buyer: Pubkey, pub lamports: u64 }
 #[event]
 pub struct SolClaimed { pub claimer: Pubkey, pub amount: u64, pub lifetime_claimed: u64, pub pool_dispensed: u64 }
+#[event]
+pub struct FaucetConfigured { pub faucet: Pubkey, pub pool_lamports: u64, pub dispensed: u64 }

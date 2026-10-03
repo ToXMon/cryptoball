@@ -9,7 +9,7 @@ pub const TICKET_SEED: &[u8] = b"ticket";
 pub const VAULT_SEED: &[u8] = b"vault";
 /// Devnet faucet. Distinct seeds: the faucet vault is a plain system PDA with no campaign in its
 /// derivation, so no `vault_pay`/ticket path can ever be routed at it.
-pub const FAUCET_SEED: &[u8] = b"faucet";
+pub const FAUCET_SEED: &[u8] = b"faucet-v2";
 pub const FAUCET_VAULT_SEED: &[u8] = b"faucet-vault";
 pub const CLAIM_SEED: &[u8] = b"claim";
 
@@ -39,8 +39,9 @@ pub const REVEAL_TIMEOUT_SECS: i64 = 3_600;
 pub const MAX_CLAIM_LAMPORTS: u64 = 110_000_000; // 0.11 SOL
 /// Lifetime ceiling per wallet: three max claims (firstmate spec, "0.33 = three tickets' worth").
 pub const MAX_CLAIM_LIFETIME_LAMPORTS: u64 = 330_000_000; // 0.33 SOL
-/// Total ever dispensed. The hard backstop: even a broken per-wallet tally cannot drain more than this.
-pub const FAUCET_POOL_LAMPORTS: u64 = 1_000_000_000; // 1.0 SOL
+/// Ceiling one `initialize_faucet` call may budget. The admin may raise a live ledger's ceiling past
+/// this with `update_faucet_pool` - that is the documented refill - but cannot start above it.
+pub const INITIAL_POOL_LAMPORTS: u64 = 1_000_000_000; // 1.0 SOL
 
 /// Static metadata uri for every ticket NFT (DEVNET PLACEHOLDER; never trusted by the program).
 pub const TICKET_URI: &str = "https://cryptoball.invalid/ticket.json";
