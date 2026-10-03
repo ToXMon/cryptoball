@@ -178,6 +178,8 @@ need an interactive login):
   error.
 - **First check on a new host**: run the same command with `--dry-run` first (plan and cost, sends
   nothing), then without it.
+- **RPC**: the line above uses the dedicated QuickNode default from `Devnet RPC endpoint` above; a
+  different endpoint is `RPC_URL=...` in front of the command.
 
 Every run appends one line to `ops/log/open-game.log` (`OPENED {...}` with address, close time,
 signature and cost; `DRYRUN`; `REFUSED <why>`; `FAILED <why> state=<what exists on chain>`), so a
