@@ -1,0 +1,7 @@
+{
+  "mode": "architecture",
+  "title": "Savings toy",
+  "titleHighlight": "Wright rules",
+  "subtitle": "Small rules. The player picks the campaign, keeps the deposit, and shares the settlement.",
+  "nodes": ["Passkey wallet", "Pick a campaign", "USDC campaign", "SOL campaign", "USDY campaign", "Points", "Settlement"]
+}

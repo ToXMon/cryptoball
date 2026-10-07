@@ -1,0 +1,7 @@
+{
+  "mode": "architecture",
+  "title": "Cryptoball token",
+  "titleHighlight": "harvest fee only",
+  "subtitle": "The deposit comes back. Ten percent of the harvest buys the token or funds the DAO. A deposit does not require the token.",
+  "nodes": ["Campaign vault", "Harvest", "90/10 split", "Prize vault", "Fee wallet", "Buy and burn", "DAO vote", "Open campaign"]
+}
