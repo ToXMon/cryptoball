@@ -362,8 +362,9 @@ assert.deepEqual([losslessCampaign.id, losslessCampaign.closeTs, losslessCampaig
 assert.equal(losslessCampaign.winner, adminKey.toBase58());
 assert.equal(describeLosslessError(new Error("custom program error: 0x1770")), "This wallet is not allowed to manage this Lossless campaign.");
 assert.equal(describeLosslessError(new Error('confirmed: {"InstructionError":[0,{"Custom":6000}]}')), "This wallet is not allowed to manage this Lossless campaign.");
+assert.equal(describeLosslessError(new Error('confirmed: {"InstructionError":[0,"InvalidAccountData"]}')), "The Lossless transaction failed. Check the campaign state and try again.");
 assert.notEqual(describeLosslessError(new Error("custom program error: 0x1775")), ERROR_COPY.NotClosed);
-assert.doesNotMatch(describeLosslessError(new Error('confirmed: {"InstructionError":[0,{"Custom":6000}]}')), /InstructionError|FeeTooHigh/);
+assert.doesNotMatch(describeLosslessError(new Error('confirmed: {"InstructionError":[0,"InvalidAccountData"]}')), /InvalidAccountData|InstructionError/);
 assert.doesNotThrow(() => assertLosslessConfirmed("sig", { value: { err: null } }));
 assert.throws(() => assertLosslessConfirmed("sig", { value: { err: "InstructionError" } }), /failed after confirmation/);
 assert.throws(() => decodeLosslessCampaign("bad", new Uint8Array(220)), /Campaign account/);

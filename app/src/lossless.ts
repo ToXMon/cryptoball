@@ -25,6 +25,8 @@ const compareKeys = (a: string, b: string) => {
 const readU64 = (view: DataView, offset: number) => view.getBigUint64(offset, true);
 const same = (a: Uint8Array, b: Uint8Array) => b.every((x, i) => a[i] === x);
 
+const LOSSLESS_TRANSACTION_FAILED = "The Lossless transaction failed. Check the campaign state and try again.";
+
 export const LOSSLESS_ERROR_COPY = [
   "This wallet is not allowed to manage this Lossless campaign.",
   "The Lossless fee exceeds the prototype cap.",
@@ -54,7 +56,7 @@ export function describeLosslessError(e: unknown): string {
   const code = hex == null ? decimal == null ? undefined : Number(decimal) : parseInt(hex, 16);
   const copy = code == null ? undefined : LOSSLESS_ERROR_COPY[code - 6000];
   if (copy) return copy;
-  if (code != null) return "The Lossless transaction failed. Check the campaign state and try again.";
+  if (code != null || /InstructionError|failed after confirmation/i.test(message)) return LOSSLESS_TRANSACTION_FAILED;
   return describeError(e);
 }
 
