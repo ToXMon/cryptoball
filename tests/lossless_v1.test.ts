@@ -10,7 +10,10 @@ const root = process.cwd();
 const idl = JSON.parse(fs.readFileSync(path.join(root, "target/idl/lossless_v1.json"), "utf8"));
 const PROGRAM_ID = new PublicKey(idl.address);
 const TOKEN_ID = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+<<<<<<< HEAD
 const LOSSLESS_USDC_MINT = new PublicKey("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU");
+=======
+>>>>>>> 6858b3b (feat: add lossless v1 devnet mock prototype)
 const LOADER = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111");
 const SOL = 1_000_000_000n;
 const u64le = (n: bigint | number) => { const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(n)); return b; };
@@ -32,10 +35,17 @@ class LosslessWorld {
   attacker = Keypair.generate();
   payer = Keypair.generate();
   treasury = Keypair.generate();
+<<<<<<< HEAD
   mint = LOSSLESS_USDC_MINT;
   treasuryToken = Keypair.generate().publicKey;
   adminToken = Keypair.generate().publicKey;
   users = Array.from({ length: 24 }, () => Keypair.generate());
+=======
+  mint = Keypair.generate().publicKey;
+  treasuryToken = Keypair.generate().publicKey;
+  adminToken = Keypair.generate().publicKey;
+  users = [Keypair.generate(), Keypair.generate()];
+>>>>>>> 6858b3b (feat: add lossless v1 devnet mock prototype)
   userTokens = this.users.map(() => Keypair.generate().publicKey);
   wrongMint = Keypair.generate().publicKey;
   wrongAuthority = Keypair.generate().publicKey;
@@ -170,7 +180,11 @@ class LosslessWorld {
     const campaign = campaignPda(id);
     return this.m.withdraw().accountsPartial({
       owner: user.publicKey, campaign, position: positionPda(campaign, user.publicKey),
+<<<<<<< HEAD
       principalVault: vaultPda("principal-vault", campaign), prizeVault: vaultPda("prize-vault", campaign), destination, tokenProgram: TOKEN_ID,
+=======
+      principalVault: vaultPda("principal-vault", campaign), destination, tokenProgram: TOKEN_ID,
+>>>>>>> 6858b3b (feat: add lossless v1 devnet mock prototype)
     }).instruction();
   }
 
@@ -195,7 +209,10 @@ describe("lossless-v1 accounting (LiteSVM + devnet SPL Token binary)", () => {
     const w = new LosslessWorld();
     // A non-upgrade-authority cannot initialize the singleton config.
     w.fails([await w.initIx(w.attacker)], [w.attacker], err("Unauthorized"));
+<<<<<<< HEAD
     w.fails([await w.initIx(w.authority, w.wrongMint)], [w.authority], err("WrongMint"));
+=======
+>>>>>>> 6858b3b (feat: add lossless v1 devnet mock prototype)
     await w.init();
     const id = 1n;
     const campaign = await w.campaign(id);
@@ -205,7 +222,10 @@ describe("lossless-v1 accounting (LiteSVM + devnet SPL Token binary)", () => {
     w.fails([await w.depositIx(id, alice, w.wrongAuthority, 1_000_000n)], [alice], err("WrongTokenAccount"));
     w.fails([await w.mockAccrueIx(id, w.attacker)], [w.attacker], err("Unauthorized"));
     w.ok([await w.depositIx(id, alice)], [alice]);
+<<<<<<< HEAD
     w.fails([await w.depositIx(id, alice)], [alice], "already in use"); // one position per wallet/campaign; replay cannot mint shares twice
+=======
+>>>>>>> 6858b3b (feat: add lossless v1 devnet mock prototype)
     w.ok([await w.depositIx(id, bob)], [bob]);
 
     // A direct SPL donation increases raw vault tokens but not mock value, shares, or harvestable yield.
@@ -257,6 +277,7 @@ describe("lossless-v1 accounting (LiteSVM + devnet SPL Token binary)", () => {
     expect(w.balance(principal)).to.equal(9_000_000n); // donation is still inert, not claimed as principal/yield
   });
 
+<<<<<<< HEAD
   it("rejects replayed config creation, insufficient funds, and deposits after close", async () => {
     const w = new LosslessWorld(); await w.init();
     w.fails([await w.initIx()], [w.authority], "already in use");
@@ -268,6 +289,8 @@ describe("lossless-v1 accounting (LiteSVM + devnet SPL Token binary)", () => {
     expect(w.acct(campaign.address).positionCount).to.equal(0);
   });
 
+=======
+>>>>>>> 6858b3b (feat: add lossless v1 devnet mock prototype)
   it("caps one-transaction settlement at 24 positions", async () => {
     const w = new LosslessWorld(); await w.init();
     const closeTs = BigInt(w.now) + 10n;
@@ -275,6 +298,7 @@ describe("lossless-v1 accounting (LiteSVM + devnet SPL Token binary)", () => {
     w.fails([await w.createIx(7n, closeTs, 10_000_000n, 25)], [w.admin], err("InvalidParams"));
   });
 
+<<<<<<< HEAD
   it("settles a full 24-position campaign when the winner ATA already exists", async () => {
     const w = new LosslessWorld(); await w.init();
     const id = 6n; const closeTs = BigInt(w.now) + 10n;
@@ -290,6 +314,8 @@ describe("lossless-v1 accounting (LiteSVM + devnet SPL Token binary)", () => {
     expect(w.acct(campaign.address).state).to.deep.equal({ Settled: {} });
   });
 
+=======
+>>>>>>> 6858b3b (feat: add lossless v1 devnet mock prototype)
   it("harvests existing yield before issuing more one-to-one shares", async () => {
     const w = new LosslessWorld(); await w.init();
     const id = 8n; const campaign = await w.campaign(id);
@@ -303,7 +329,11 @@ describe("lossless-v1 accounting (LiteSVM + devnet SPL Token binary)", () => {
     expect(state.prizeBalance.toString()).to.equal("975000");
   });
 
+<<<<<<< HEAD
   it("pauses draw/harvest on shortfall and pays withdrawals pro rata", async () => {
+=======
+  it("pauses draw/harvest on shortfall, cancels after close, and pays withdrawals pro rata", async () => {
+>>>>>>> 6858b3b (feat: add lossless v1 devnet mock prototype)
     const w = new LosslessWorld(); await w.init();
     const id = 2n; const campaign = await w.campaign(id);
     const user = w.users[0]; const token = w.userTokens[0];
@@ -317,6 +347,7 @@ describe("lossless-v1 accounting (LiteSVM + devnet SPL Token binary)", () => {
     w.ok([await w.withdrawIx(id, user)], [user]); // shortfall exits remain available while no draw is committed
     expect(w.balance(token)).to.equal(4_600_000n);
     expect(w.acct(campaign.address).principalLiability.toString()).to.equal("0");
+<<<<<<< HEAD
   });
 
   it("withdraws open shortfall from principal and prize ledgers", async () => {
@@ -363,6 +394,9 @@ describe("lossless-v1 accounting (LiteSVM + devnet SPL Token binary)", () => {
     expect([state.mockValue.toString(), state.prizeBalance.toString(), state.principalLiability.toString(), state.positionCount]).to.deep.equal(["0", "0", "0", 0]);
     expect(w.balance(principal)).to.equal(9_000_000n);
     w.fails([await w.depositIx(id, w.users[3], w.userTokens[3], 1n)], [w.users[3]], err("WrongState"));
+=======
+    w.ok([await w.cancelIx(id)], [w.payer]);
+>>>>>>> 6858b3b (feat: add lossless v1 devnet mock prototype)
   });
 
   it("clears shortfall only when mock assets restore full principal and then permits a draw", async () => {

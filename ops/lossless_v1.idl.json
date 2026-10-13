@@ -1366,6 +1366,7 @@
           }
         },
         {
+<<<<<<< HEAD
           "name": "prize_vault",
           "writable": true,
           "pda": {
@@ -1394,6 +1395,8 @@
           }
         },
         {
+=======
+>>>>>>> 6858b3b (feat: add lossless v1 devnet mock prototype)
           "name": "destination",
           "writable": true
         },

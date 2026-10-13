@@ -18,7 +18,10 @@ const PRIZE_SEED: &[u8] = b"prize-vault";
 const LOSS_SEED: &[u8] = b"mock-loss-vault";
 const POSITION_SEED: &[u8] = b"position";
 const TOKEN_PROGRAM_ID: Pubkey = pubkey!("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+<<<<<<< HEAD
 const LOSSLESS_USDC_MINT: Pubkey = pubkey!("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU");
+=======
+>>>>>>> 6858b3b (feat: add lossless v1 devnet mock prototype)
 const MAX_FEE_BPS: u16 = 250;
 // ponytail: one-transaction settlement fits the 1232-byte packet limit at 24 positions; larger needs batching.
 const MAX_POSITIONS: u16 = 24;
@@ -463,6 +466,7 @@ pub mod lossless_v1 {
         validate_token_account(&ctx.accounts.principal_vault, c.mint, c.key())?;
         validate_token_account(&ctx.accounts.destination, c.mint, p.owner)?;
         let shares = p.shares;
+<<<<<<< HEAD
         let open_shortfall = c.state == CampaignState::Open && c.shortfall;
         let tracked_value = if open_shortfall {
             c.mock_value
@@ -479,11 +483,16 @@ pub mod lossless_v1 {
         let principal_payout = payout.min(c.mock_value);
         let prize_payout = payout.checked_sub(principal_payout).ok_or(E::Overflow)?;
         if principal_payout > 0 {
+=======
+        let payout = withdrawal_amount(shares, c.mock_value, c.principal_liability)?;
+        if payout > 0 {
+>>>>>>> 6858b3b (feat: add lossless v1 devnet mock prototype)
             campaign_transfer(
                 &ctx.accounts.token_program,
                 &ctx.accounts.principal_vault,
                 &ctx.accounts.destination,
                 c,
+<<<<<<< HEAD
                 principal_payout,
             )?;
         }
@@ -495,12 +504,16 @@ pub mod lossless_v1 {
                 &ctx.accounts.destination,
                 c,
                 prize_payout,
+=======
+                payout,
+>>>>>>> 6858b3b (feat: add lossless v1 devnet mock prototype)
             )?;
         }
         c.principal_liability = c
             .principal_liability
             .checked_sub(shares)
             .ok_or(E::Overflow)?;
+<<<<<<< HEAD
         c.mock_value = c
             .mock_value
             .checked_sub(principal_payout)
@@ -521,6 +534,12 @@ pub mod lossless_v1 {
         } else {
             c.shortfall = c.mock_value < c.principal_liability;
         }
+=======
+        c.mock_value = c.mock_value.checked_sub(payout).ok_or(E::Overflow)?;
+        c.share_supply = c.share_supply.checked_sub(shares).ok_or(E::Overflow)?;
+        c.position_count = c.position_count.checked_sub(1).ok_or(E::Overflow)?;
+        c.shortfall = c.mock_value < c.principal_liability;
+>>>>>>> 6858b3b (feat: add lossless v1 devnet mock prototype)
         p.shares = 0;
         p.withdrawn = true;
         emit!(Withdrawn {
@@ -578,7 +597,10 @@ fn withdrawal_amount(shares: u64, value: u64, liability: u64) -> Result<u64> {
 }
 
 fn validate_mint(mint: &UncheckedAccount) -> Result<()> {
+<<<<<<< HEAD
     require_keys_eq!(mint.key(), LOSSLESS_USDC_MINT, E::WrongMint);
+=======
+>>>>>>> 6858b3b (feat: add lossless v1 devnet mock prototype)
     require!(mint.owner == &TOKEN_PROGRAM_ID, E::WrongMint);
     let data = mint.try_borrow_data()?;
     require!(
@@ -967,9 +989,12 @@ pub struct Withdraw<'info> {
     /// CHECK: principal-only vault.
     #[account(mut, address = campaign.principal_vault, seeds = [PRINCIPAL_SEED, campaign.key().as_ref()], bump)]
     pub principal_vault: UncheckedAccount<'info>,
+<<<<<<< HEAD
     /// CHECK: prize-only vault used for open-shortfall withdrawals.
     #[account(mut, address = campaign.prize_vault, seeds = [PRIZE_SEED, campaign.key().as_ref()], bump)]
     pub prize_vault: UncheckedAccount<'info>,
+=======
+>>>>>>> 6858b3b (feat: add lossless v1 devnet mock prototype)
     /// CHECK: owner's token account with the configured mint.
     #[account(mut)]
     pub destination: UncheckedAccount<'info>,
