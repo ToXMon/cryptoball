@@ -31,6 +31,7 @@ function LosslessCampaignCard({ c, admin, slot, revision, refresh }: { c: Lossle
   const { data: position } = useAsync(() => me ? fetchLosslessPosition(c.address, me) : Promise.resolve(undefined), [c.address, me, revision]);
   const now = useNow();
   const closed = c.closeTs <= now;
+  const mature = slot > c.lastDepositSlot;
   const canWithdraw = !!position && !position.withdrawn && (c.state === "Settled" || c.state === "Cancelled" || c.shortfall);
   const odds = estimatedOdds(position, c, slot);
   const transact = async (label: string, fn: () => Promise<string>) => {
@@ -54,7 +55,7 @@ function LosslessCampaignCard({ c, admin, slot, revision, refresh }: { c: Lossle
         <dt>Principal ledger</dt><dd className="cb-num">{usdc(c.principal)}</dd>
         <dt>Tracked mock value</dt><dd className="cb-num">{usdc(c.mockValue)}</dd>
         <dt>Prize vault</dt><dd className="cb-num">{usdc(c.prize)}</dd>
-        <dt>Eligible shares</dt><dd className="cb-num">{usdc(c.state === "DrawCommitted" ? c.snapshotShares : c.shares)} · {c.state === "DrawCommitted" ? c.snapshotPositions : c.positions} positions</dd>
+        <dt>{c.state === "DrawCommitted" ? "Eligible shares" : "Share supply"}</dt><dd className="cb-num">{usdc(c.state === "DrawCommitted" ? c.snapshotShares : c.shares)} · {c.state === "DrawCommitted" ? c.snapshotPositions : c.positions} positions</dd>
         <dt>Entry limit</dt><dd className="cb-num">{usdc(c.principalCap)} · {c.maxPositions} positions max</dd>
         <dt>Closes</dt><dd>{dateTime(c.closeTs)}</dd>
         {position && !position.withdrawn && <>
@@ -77,7 +78,8 @@ function LosslessCampaignCard({ c, admin, slot, revision, refresh }: { c: Lossle
           <button className="cb-btn cb-btn--ghost" disabled={!!busy || c.mockValue < 250_000n} onClick={() => void transact("Mock loss", () => mockLossLossless(c, admin, 250_000n, wallet))}>Simulate 0.25 USDC loss</button>
         </>}
         {c.state === "Open" && <button className="cb-btn cb-btn--ghost" disabled={!!busy || c.shortfall} onClick={() => void transact("Harvest", () => harvestLossless(c, wallet))}>{busy === "Harvest" ? "Harvesting…" : "Harvest mock accrual"}</button>}
-        {c.state === "Open" && closed && c.shares > 0n && <button className="cb-btn cb-btn--primary" disabled={!!busy || c.shortfall || c.mockValue !== c.principal} onClick={() => void transact("Commit", () => commitLossless(c, SEED, wallet))}>{busy === "Commit" ? "Committing…" : "Commit test draw"}</button>}
+        {c.state === "Open" && closed && c.shares > 0n && <button className="cb-btn cb-btn--primary" disabled={!!busy || c.shortfall || c.mockValue !== c.principal || !mature} onClick={() => void transact("Commit", () => commitLossless(c, SEED, wallet))}>{busy === "Commit" ? "Committing…" : "Commit test draw"}</button>}
+        {c.state === "Open" && closed && c.shares > 0n && !mature && <p className="cb-muted cb-fine">Commit unlocks after the next confirmed slot. Refresh campaign state to continue.</p>}
         {c.state === "Open" && closed && <button className="cb-btn cb-btn--ghost" disabled={!!busy} onClick={() => void transact("Cancel", () => cancelLossless(c, wallet))}>Cancel closed round</button>}
         {c.state === "DrawCommitted" && <button className="cb-btn cb-btn--primary" disabled={!!busy} onClick={() => void transact("Reveal and settle", () => settleLossless(c, wallet))}>{busy === "Reveal and settle" ? "Revealing…" : "Reveal & settle test draw"}</button>}
         {c.state === "DrawCommitted" && <button className="cb-btn cb-btn--ghost" disabled={!!busy || now <= c.commitTs + 3600} onClick={() => void transact("Cancel", () => cancelLossless(c, wallet))}>Cancel after 1h timeout</button>}
