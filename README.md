@@ -10,12 +10,13 @@ Phases 1 to 2 (requirements, architecture, scaffold), the frontend phase and the
 The program is **live on devnet** (receipts below) and the web app talks to it for real: `app/src/program.ts` builds `buy_ticket` / `refund_ticket` instructions against the deployed program id and the devnet RPC. The web app also offers a **passkey wallet** (`app/src/passkeyWallet.ts`): a Wallet Standard wallet whose ed25519 key is derived on the player's device from a WebAuthn passkey PRF output via [mera](https://mera.category.xyz) 0.2.0. It is a plain keypair, not a smart account; installed wallets (Phantom and friends) remain as a second path in the same dialog.
 `settle_draw` reads the value the oracle persisted in the randomness account, so settlement is not bound to the exact reveal slot; it must still land inside the same window `cancel_campaign` uses (see the receipts' operational notes). Build order is `docs/design.md` section 17.
 
-Lossless V1 is a separate devnet-only mock-adapter prototype deployed at [`EcFzauTsYV41yUFxnJtx17fz4awZnGRaQKtZWiBF69VF`](https://explorer.solana.com/address/EcFzauTsYV41yUFxnJtx17fz4awZnGRaQKtZWiBF69VF?cluster=devnet), surfaced on the app's `#/lossless` route. The permanent static app is [published here](https://robust-diner-7jvk.here.now/). It uses devnet USDC test tokens and caller-supplied test randomness; it does not change the SOL raffle program or deployment. Scope and deployment receipt: [docs/lossless-v1.md](docs/lossless-v1.md).
+Lossless V1 is a separate devnet-only mock-adapter prototype. Open the read-only `#/lossless` route in the [published app](https://robust-diner-7jvk.here.now/); scope and deployment receipt: [docs/lossless-v1.md](docs/lossless-v1.md).
 
 | Doc | What |
 |---|---|
 | [docs/requirements.md](docs/requirements.md) | 88 atomic requirements, decisions traceability, out-of-scope list |
 | [docs/design.md](docs/design.md) | Account map, PDA seeds, instructions, state machine, CPI plan, threat model, swappable winner unit |
+| [docs/lossless-v1.md](docs/lossless-v1.md) | Lossless V1 prototype scope, accounting, and deployment receipt |
 | [docs/diagrams/](docs/diagrams/) | D1-D9 architecture diagrams (SVG) |
 
 ## Devnet SOL faucet (devnet only)
@@ -215,9 +216,10 @@ bytes). `scripts/faucet-proof.js` regenerates the claim receipts above.
 
 ```
 programs/cryptoball/   Anchor program (instructions, state, events, errors, constants, winner.rs)
+programs/lossless_v1/ Anchor program for the separate Lossless V1 mock-adapter prototype
 tests/                 ts-mocha + LiteSVM: harness.ts, one test file per instruction, lifecycle; fixtures/mpl_core.so = devnet Core binary
-app/                   React + Vite player app (Prime Time design, 3D ticket, draw-night ball drop); src/tokens.css = design tokens; src/program.ts = devnet program adapter (builds Anchor instructions); src/passkeyWallet.ts = passkey (Wallet Standard) wallet
-docs/                  requirements, design, diagrams
+app/                   React + Vite player app (Prime Time design, 3D ticket, draw-night ball drop); src/tokens.css = design tokens; src/program.ts = raffle adapter; src/lossless.ts = read-only Lossless V1 decoder; src/passkeyWallet.ts = passkey (Wallet Standard) wallet
+docs/                  requirements, design, diagrams, and the Lossless V1 scope/receipt
 ops/                   open-game.mjs (open a campaign), cancel-refund.mjs (cancel + refund a stuck campaign), admin.mjs (admin handover), schedule.sh (launchd rolling schedule), cryptoball.idl.json (committed IDL of the deployed program)
 scripts/                write-buffer.js (devnet upgrade, chunked buffer upload), faucet-proof.js (claim receipts)
 ```
