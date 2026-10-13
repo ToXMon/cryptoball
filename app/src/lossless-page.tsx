@@ -5,7 +5,7 @@ import { Countdown, Err } from "./components";
 import { dateTime, explorer, short, useAsync, useNow } from "./lib";
 import {
   cancelLossless, commitLossless, depositLossless, discoverLosslessCampaigns,
-  estimatedOdds, fetchLosslessConfig, fetchLosslessPosition, harvestLossless, LOSSLESS_PROGRAM_ID,
+  describeLosslessError, estimatedOdds, fetchLosslessConfig, fetchLosslessPosition, harvestLossless, LOSSLESS_PROGRAM_ID,
   LOSSLESS_USDC_MINT, mockAccrueLossless, mockLossLossless, parseUsdc, settleLossless,
   usdc, withdrawLossless, type LosslessCampaign, type LosslessPosition,
 } from "./lossless";
@@ -88,7 +88,7 @@ function LosslessCampaignCard({ c, admin, slot, revision, refresh }: { c: Lossle
       </div>
       {c.state === "DrawCommitted" && <p className="cb-muted" aria-live="polite">Anticipation: the snapshot is fixed. Reveal the stored mock seed to see which share range wins.</p>}
       {notice && <p className="cb-muted" role="status">{notice}</p>}
-      {error != null && <Err e={error} />}
+      {error != null && <Err e={error} describe={describeLosslessError} />}
     </article>
   );
 }
@@ -114,7 +114,7 @@ export function LosslessLanding() {
         <dt>Draw</dt><dd>Caller-supplied deterministic test seed; not secure randomness</dd>
         {config && <><dt>Mock admin</dt><dd className="cb-addr">{short(config.admin)}{publicKey?.toBase58() === config.admin ? " · connected" : ""}</dd><dt>Mock fee</dt><dd>{config.feeBps / 100}% of tracked accrual</dd></>}
       </dl>
-      {(error != null || configError != null) && <Err e={error ?? configError} />}
+      {(error != null || configError != null) && <Err e={error ?? configError} describe={describeLosslessError} />}
       <section aria-labelledby="lossless-campaigns">
         <h2 id="lossless-campaigns">Campaigns · enter, wait, reveal</h2>
         {loading && <p className="cb-muted" aria-live="polite">Discovering accounts for the separate lossless-v1 program…</p>}

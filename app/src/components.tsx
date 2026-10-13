@@ -189,11 +189,11 @@ export function Faucet({ address, fund, recheck }: { address: string; fund: Fund
  * because `FUNDING_ERROR` names the faucet app-wide and nothing else on such a page points at one. A page that renders the
  * funding card passes no address, and the card is the one place that address and that link are shown.
  */
-export function Err({ e, address }: { e: unknown; address?: string }) {
-  if (!isFundingError(e) || !address) return <p className="cb-error" role="alert">{describeError(e)}</p>;
+export function Err({ e, address, describe = describeError }: { e: unknown; address?: string; describe?: (e: unknown) => string }) {
+  if (!isFundingError(e) || !address) return <p className="cb-error" role="alert">{describe(e)}</p>;
   return (
     <div className="cb-error" role="alert">
-      <p>{describeError(e)}</p>
+      <p>{describe(e)}</p>
       <p className="cb-num cb-addr">{address}</p>
       <p><a className="cb-btn cb-btn--primary" href={FAUCET_URL} target="_blank" rel="noreferrer">Open Solana devnet faucet</a></p>
     </div>

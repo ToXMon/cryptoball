@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { DEFAULT_MANIFEST, existingCampaignAction, existingConfigAction, parseArgs, validateManifest } from "./seed-devnet-campaigns.mjs";
+import { assertConfirmed, DEFAULT_MANIFEST, existingCampaignAction, existingConfigAction, parseArgs, validateManifest } from "./seed-devnet-campaigns.mjs";
 
 const manifest = JSON.parse(fs.readFileSync(DEFAULT_MANIFEST, "utf8"));
 
@@ -24,6 +24,11 @@ test("existing lossless config is never silently mutated", () => {
   const expected = { mint: "mint", admin: "admin", treasury: "admin", treasuryToken: "ata", feeBps: 250 };
   assert.equal(existingConfigAction(expected, expected), "exists");
   assert.throws(() => existingConfigAction({ ...expected, treasuryToken: "other" }, expected), /refusing to mutate deployment identity/);
+});
+
+test("confirmed transaction errors stop seed completion", () => {
+  assert.doesNotThrow(() => assertConfirmed("sig", { value: { err: null } }));
+  assert.throws(() => assertConfirmed("sig", { value: { err: "InstructionError" } }), /failed after confirmation/);
 });
 
 test("seed command is read-only unless --send is explicit", () => {

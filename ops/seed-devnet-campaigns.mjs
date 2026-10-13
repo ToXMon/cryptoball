@@ -88,12 +88,17 @@ async function record(receipt) {
   fs.appendFileSync(RECEIPTS, `${JSON.stringify(receipt)}\n`);
 }
 
+export function assertConfirmed(signature, result) {
+  if (result.value.err != null) throw new Error(`Transaction ${signature} failed after confirmation: ${JSON.stringify(result.value.err)}`);
+}
+
 async function send(connection, payer, ixs, extra = []) {
   const tx = new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: 700_000 }), ...ixs);
   tx.feePayer = payer.publicKey;
   tx.recentBlockhash = (await connection.getLatestBlockhash("confirmed")).blockhash;
   const signature = await connection.sendTransaction(tx, [payer, ...extra], { preflightCommitment: "confirmed" });
-  await retry(() => connection.confirmTransaction(signature, "confirmed"), "confirmTransaction");
+  const confirmation = await retry(() => connection.confirmTransaction(signature, "confirmed"), "confirmTransaction");
+  assertConfirmed(signature, confirmation);
   return signature;
 }
 

@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import { PublicKey } from "@solana/web3.js";
 import { createBalanceRead, type BalanceState } from "./balance.ts";
 import { accountFromPrfOutput } from "./passkeyWallet.ts";
-import { decodeLosslessCampaign, decodeLosslessConfig, decodeLosslessPosition, deterministicWinner, estimatedOdds, LOSSLESS_CAMPAIGN_DISC, LOSSLESS_CONFIG_DISC, LOSSLESS_POSITION_DISC, LOSSLESS_PROGRAM_ID, LOSSLESS_USDC_MINT, parseUsdc, type LosslessPosition } from "./lossless.ts";
+import { assertConfirmed as assertLosslessConfirmed, decodeLosslessCampaign, decodeLosslessConfig, decodeLosslessPosition, describeLosslessError, deterministicWinner, estimatedOdds, LOSSLESS_CAMPAIGN_DISC, LOSSLESS_CONFIG_DISC, LOSSLESS_POSITION_DISC, LOSSLESS_PROGRAM_ID, LOSSLESS_USDC_MINT, parseUsdc, type LosslessPosition } from "./lossless.ts";
 
 // The invariant is "every CryptoballError variant has English copy". Assert it against the real
 // variant list in errors.rs rather than a hardcoded count: a hardcoded number passes happily while
@@ -360,6 +360,10 @@ losslessBytes.set(adminKey.toBytes(), 272);
 const losslessCampaign = decodeLosslessCampaign("campaign", losslessBytes);
 assert.deepEqual([losslessCampaign.id, losslessCampaign.closeTs, losslessCampaign.state, losslessCampaign.principal, losslessCampaign.mockValue, losslessCampaign.prize, losslessCampaign.snapshotPositions, losslessCampaign.shortfall], [9n, 1_790_000_000, "DrawCommitted", 2_000_000n, 1_950_000n, 50_000n, 2, true]);
 assert.equal(losslessCampaign.winner, adminKey.toBase58());
+assert.equal(describeLosslessError(new Error("custom program error: 0x1770")), "This wallet is not allowed to manage this Lossless campaign.");
+assert.notEqual(describeLosslessError(new Error("custom program error: 0x1775")), ERROR_COPY.NotClosed);
+assert.doesNotThrow(() => assertLosslessConfirmed("sig", { value: { err: null } }));
+assert.throws(() => assertLosslessConfirmed("sig", { value: { err: "InstructionError" } }), /failed after confirmation/);
 assert.throws(() => decodeLosslessCampaign("bad", new Uint8Array(220)), /Campaign account/);
 const positionBytes = new Uint8Array(90); positionBytes.set(LOSSLESS_POSITION_DISC); positionBytes.set(adminKey.toBytes(), 8); positionBytes.set(adminKey.toBytes(), 40);
 new DataView(positionBytes.buffer).setBigUint64(72, 1_000_000n, true); new DataView(positionBytes.buffer).setBigUint64(80, 23n, true);

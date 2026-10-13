@@ -1,6 +1,6 @@
 import { Connection, PublicKey, SystemProgram, Transaction, TransactionInstruction } from "@solana/web3.js";
 import { sha256 } from "@noble/hashes/sha2.js";
-import { base58, DEVNET_RPC, type WalletSigner } from "./program.ts";
+import { base58, describeError, DEVNET_RPC, type WalletSigner } from "./program.ts";
 
 export const LOSSLESS_PROGRAM_ID = new PublicKey("EcFzauTsYV41yUFxnJtx17fz4awZnGRaQKtZWiBF69VF");
 export const LOSSLESS_USDC_MINT = new PublicKey("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU");
@@ -24,6 +24,39 @@ const compareKeys = (a: string, b: string) => {
 };
 const readU64 = (view: DataView, offset: number) => view.getBigUint64(offset, true);
 const same = (a: Uint8Array, b: Uint8Array) => b.every((x, i) => a[i] === x);
+
+export const LOSSLESS_ERROR_COPY = [
+  "This wallet is not allowed to manage this Lossless campaign.",
+  "The Lossless fee exceeds the prototype cap.",
+  "The Lossless campaign parameters are invalid.",
+  "The Lossless campaign is not in the required state.",
+  "Lossless deposits are paused.",
+  "The Lossless campaign is closed.",
+  "The Lossless campaign has reached its deposit cap.",
+  "The token account, owner, or mint does not match this Lossless campaign.",
+  "The token mint is not the pinned six-decimal test USDC mint.",
+  "The USDC amount must be positive.",
+  "The campaign is in shortfall; deposits, harvest, and draws are stopped.",
+  "Harvest tracked yield before issuing shares or committing the draw.",
+  "The Lossless draw has no eligible shares.",
+  "The latest deposit is not mature yet; wait for the next slot.",
+  "The reveal timeout has not elapsed.",
+  "The committed position snapshot no longer matches.",
+  "This Lossless position was already withdrawn.",
+  "The deterministic draw seed was exhausted.",
+  "The Lossless transaction overflowed.",
+] as const;
+
+export function describeLosslessError(e: unknown): string {
+  const message = e instanceof Error ? e.message : String(e);
+  const code = message.match(/custom program error: 0x([0-9a-f]+)/i)?.[1];
+  const copy = code == null ? undefined : LOSSLESS_ERROR_COPY[parseInt(code, 16) - 6000];
+  return copy ?? describeError(e);
+}
+
+export function assertConfirmed(signature: string, result: { value: { err: unknown } }) {
+  if (result.value.err != null) throw new Error(`Lossless transaction ${signature} failed after confirmation: ${JSON.stringify(result.value.err)}`);
+}
 
 export interface LosslessCampaign {
   address: string;
@@ -220,7 +253,8 @@ async function send(ixs: TransactionInstruction[], wallet?: WalletSigner) {
     : wallet.signTransaction
       ? await connection.sendRawTransaction((await wallet.signTransaction(tx)).serialize(), { preflightCommitment: "confirmed" })
       : (() => { throw new Error("This wallet cannot sign transactions"); })();
-  await connection.confirmTransaction(signature, "confirmed");
+  const confirmation = await connection.confirmTransaction(signature, "confirmed");
+  assertConfirmed(signature, confirmation);
   return signature;
 }
 
