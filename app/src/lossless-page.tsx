@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletDialog } from "./Wallet";
 import { Countdown, Err } from "./components";
-import { dateTime, explorer, short, useAsync } from "./lib";
+import { dateTime, explorer, short, useAsync, useNow } from "./lib";
 import {
   cancelLossless, commitLossless, depositLossless, discoverLosslessCampaigns,
   estimatedOdds, fetchLosslessConfig, fetchLosslessPosition, harvestLossless, LOSSLESS_PROGRAM_ID,
@@ -29,7 +29,7 @@ function LosslessCampaignCard({ c, admin, slot, revision, refresh }: { c: Lossle
   const [error, setError] = useState<unknown>();
   const [notice, setNotice] = useState<string>();
   const { data: position } = useAsync(() => me ? fetchLosslessPosition(c.address, me) : Promise.resolve(undefined), [c.address, me, revision]);
-  const now = Date.now() / 1000;
+  const now = useNow();
   const closed = c.closeTs <= now;
   const canWithdraw = !!position && !position.withdrawn && (c.state === "Settled" || c.state === "Cancelled" || c.shortfall);
   const odds = estimatedOdds(position, c, slot);
@@ -80,7 +80,7 @@ function LosslessCampaignCard({ c, admin, slot, revision, refresh }: { c: Lossle
         {c.state === "Open" && closed && c.shares > 0n && <button className="cb-btn cb-btn--primary" disabled={!!busy || c.shortfall || c.mockValue !== c.principal} onClick={() => void transact("Commit", () => commitLossless(c, SEED, wallet))}>{busy === "Commit" ? "Committing…" : "Commit test draw"}</button>}
         {c.state === "Open" && closed && <button className="cb-btn cb-btn--ghost" disabled={!!busy} onClick={() => void transact("Cancel", () => cancelLossless(c, wallet))}>Cancel closed round</button>}
         {c.state === "DrawCommitted" && <button className="cb-btn cb-btn--primary" disabled={!!busy} onClick={() => void transact("Reveal and settle", () => settleLossless(c, wallet))}>{busy === "Reveal and settle" ? "Revealing…" : "Reveal & settle test draw"}</button>}
-        {c.state === "DrawCommitted" && <button className="cb-btn cb-btn--ghost" disabled={!!busy || Date.now() / 1000 <= c.commitTs + 3600} onClick={() => void transact("Cancel", () => cancelLossless(c, wallet))}>Cancel after 1h timeout</button>}
+        {c.state === "DrawCommitted" && <button className="cb-btn cb-btn--ghost" disabled={!!busy || now <= c.commitTs + 3600} onClick={() => void transact("Cancel", () => cancelLossless(c, wallet))}>Cancel after 1h timeout</button>}
         {canWithdraw && <button className="cb-btn cb-btn--primary" disabled={!!busy} onClick={() => void transact("Withdraw", () => withdrawLossless(c, me ?? "", wallet))}>{busy === "Withdraw" ? "Withdrawing…" : "Withdraw remaining mock USDC"}</button>}
         {!me && (c.state === "Open" || c.shortfall || c.state === "Settled" || c.state === "Cancelled") && <button className="cb-btn cb-btn--ghost" onClick={openWallet}>Connect wallet to view your position</button>}
       </div>
