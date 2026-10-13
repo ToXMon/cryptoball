@@ -32,7 +32,10 @@ export function decodeLosslessCampaign(address: string, bytes: Uint8Array): Loss
   const i64 = () => { const n = view.getBigInt64(offset, true); offset += 8; return n; };
   const skip = (n: number) => { offset += n; };
   const id = u64();
-  skip(32 * 4); // mint plus the three isolated token vaults
+  const mint = new PublicKey(bytes.slice(offset, offset + 32));
+  offset += 32;
+  if (!mint.equals(LOSSLESS_USDC_MINT)) throw new Error("Unexpected lossless-v1 campaign mint");
+  skip(32 * 3); // the three isolated token vaults
   skip(8); // principal cap
   const closeTs = Number(i64());
   const state = STATES[u8()];

@@ -4,6 +4,7 @@ import { LiteSVM, FailedTransactionMetadata, TransactionMetadata, Clock } from "
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { expect } from "chai";
+import { decodeLosslessCampaign, LOSSLESS_USDC_MINT } from "../app/src/lossless";
 
 const BN: any = (anchor as any).default.BN;
 const root = process.cwd();
@@ -31,7 +32,7 @@ class LosslessWorld {
   attacker = Keypair.generate();
   payer = Keypair.generate();
   treasury = Keypair.generate();
-  mint = Keypair.generate().publicKey;
+  mint = LOSSLESS_USDC_MINT;
   treasuryToken = Keypair.generate().publicKey;
   adminToken = Keypair.generate().publicKey;
   users = [Keypair.generate(), Keypair.generate()];
@@ -190,6 +191,18 @@ class LosslessWorld {
 }
 
 describe("lossless-v1 accounting (LiteSVM + devnet SPL Token binary)", () => {
+  it("pins initialization and decoded campaigns to devnet USDC", async () => {
+    const w = new LosslessWorld();
+    w.fails([await w.initIx(w.authority, w.wrongMint)], [w.authority], err("WrongMint"));
+    await w.init();
+    const campaign = await w.campaign(9n);
+    const bytes = w.data(campaign.address);
+    expect(decodeLosslessCampaign(campaign.address.toBase58(), bytes).id).to.equal(9n);
+    const mismatched = Buffer.from(bytes);
+    w.wrongMint.toBuffer().copy(mismatched, 16);
+    expect(() => decodeLosslessCampaign(campaign.address.toBase58(), mismatched)).to.throw("Unexpected lossless-v1 campaign mint");
+  });
+
   it("isolates principal, excludes donations, splits only tracked yield, snapshots once and withdraws", async () => {
     const w = new LosslessWorld();
     // A non-upgrade-authority cannot initialize the singleton config.
