@@ -1,0 +1,23 @@
+[package]
+name = "lossless_v1"
+version = "0.1.0"
+description = "Cryptoball USDC mock-adapter savings draw prototype (devnet only)"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "lossless_v1"
+
+[features]
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ident = []
+no-log-ix-name = []
+anchor-debug = []
+custom-heap = []
+custom-panic = []
+idl-build = ["anchor-lang/idl-build"]
+
+[dependencies]
+anchor-lang = "=0.32.1"

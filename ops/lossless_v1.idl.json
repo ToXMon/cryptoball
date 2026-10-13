@@ -1,0 +1,2167 @@
+{
+  "address": "EcFzauTsYV41yUFxnJtx17fz4awZnGRaQKtZWiBF69VF",
+  "metadata": {
+    "name": "lossless_v1",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Cryptoball USDC mock-adapter savings draw prototype (devnet only)"
+  },
+  "instructions": [
+    {
+      "name": "cancel_campaign",
+      "discriminator": [
+        66,
+        10,
+        32,
+        138,
+        122,
+        36,
+        134,
+        202
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "signer": true
+        },
+        {
+          "name": "campaign",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  111,
+                  115,
+                  115,
+                  108,
+                  101,
+                  115,
+                  115,
+                  45,
+                  99,
+                  97,
+                  109,
+                  112,
+                  97,
+                  105,
+                  103,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "campaign.id",
+                "account": "Campaign"
+              }
+            ]
+          }
+        },
+        {
+          "name": "principal_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  105,
+                  110,
+                  99,
+                  105,
+                  112,
+                  97,
+                  108,
+                  45,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "campaign"
+              }
+            ]
+          }
+        },
+        {
+          "name": "prize_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  105,
+                  122,
+                  101,
+                  45,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "campaign"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "commit_draw",
+      "docs": [
+        "Caller-supplied deterministic test seed; not secure oracles/randomness."
+      ],
+      "discriminator": [
+        210,
+        106,
+        32,
+        68,
+        253,
+        95,
+        229,
+        1
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "signer": true
+        },
+        {
+          "name": "campaign",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  111,
+                  115,
+                  115,
+                  108,
+                  101,
+                  115,
+                  115,
+                  45,
+                  99,
+                  97,
+                  109,
+                  112,
+                  97,
+                  105,
+                  103,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "campaign.id",
+                "account": "Campaign"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "mock_randomness",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "create_campaign",
+      "discriminator": [
+        111,
+        131,
+        187,
+        98,
+        160,
+        193,
+        114,
+        244
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  111,
+                  115,
+                  115,
+                  108,
+                  101,
+                  115,
+                  115,
+                  45,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "campaign",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  111,
+                  115,
+                  115,
+                  108,
+                  101,
+                  115,
+                  115,
+                  45,
+                  99,
+                  97,
+                  109,
+                  112,
+                  97,
+                  105,
+                  103,
+                  110
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "principal_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  105,
+                  110,
+                  99,
+                  105,
+                  112,
+                  97,
+                  108,
+                  45,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "campaign"
+              }
+            ]
+          }
+        },
+        {
+          "name": "prize_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  105,
+                  122,
+                  101,
+                  45,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "campaign"
+              }
+            ]
+          }
+        },
+        {
+          "name": "loss_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  111,
+                  99,
+                  107,
+                  45,
+                  108,
+                  111,
+                  115,
+                  115,
+                  45,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "campaign"
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "id",
+          "type": "u64"
+        },
+        {
+          "name": "close_ts",
+          "type": "i64"
+        },
+        {
+          "name": "principal_cap",
+          "type": "u64"
+        },
+        {
+          "name": "max_positions",
+          "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "deposit",
+      "docs": [
+        "One position per wallet/campaign; shares are six-decimal test-USDC base units."
+      ],
+      "discriminator": [
+        242,
+        35,
+        198,
+        137,
+        82,
+        225,
+        242,
+        182
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  111,
+                  115,
+                  115,
+                  108,
+                  101,
+                  115,
+                  115,
+                  45,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "campaign",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  111,
+                  115,
+                  115,
+                  108,
+                  101,
+                  115,
+                  115,
+                  45,
+                  99,
+                  97,
+                  109,
+                  112,
+                  97,
+                  105,
+                  103,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "campaign.id",
+                "account": "Campaign"
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "campaign"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "source",
+          "writable": true
+        },
+        {
+          "name": "principal_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  105,
+                  110,
+                  99,
+                  105,
+                  112,
+                  97,
+                  108,
+                  45,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "campaign"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "harvest",
+      "docs": [
+        "Only tracked mock value counts; unsolicited principal-vault donations do not create yield."
+      ],
+      "discriminator": [
+        228,
+        241,
+        31,
+        182,
+        53,
+        169,
+        59,
+        199
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  111,
+                  115,
+                  115,
+                  108,
+                  101,
+                  115,
+                  115,
+                  45,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "campaign",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  111,
+                  115,
+                  115,
+                  108,
+                  101,
+                  115,
+                  115,
+                  45,
+                  99,
+                  97,
+                  109,
+                  112,
+                  97,
+                  105,
+                  103,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "campaign.id",
+                "account": "Campaign"
+              }
+            ]
+          }
+        },
+        {
+          "name": "principal_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  105,
+                  110,
+                  99,
+                  105,
+                  112,
+                  97,
+                  108,
+                  45,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "campaign"
+              }
+            ]
+          }
+        },
+        {
+          "name": "prize_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  105,
+                  122,
+                  101,
+                  45,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "campaign"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_token",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "initialize",
+      "discriminator": [
+        175,
+        175,
+        109,
+        31,
+        13,
+        152,
+        155,
+        237
+      ],
+      "accounts": [
+        {
+          "name": "upgrade_authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  111,
+                  115,
+                  115,
+                  108,
+                  101,
+                  115,
+                  115,
+                  45,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program",
+          "address": "EcFzauTsYV41yUFxnJtx17fz4awZnGRaQKtZWiBF69VF"
+        },
+        {
+          "name": "program_data"
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "treasury_token"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "treasury",
+          "type": "pubkey"
+        },
+        {
+          "name": "fee_bps",
+          "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "mock_accrue",
+      "docs": [
+        "Devnet/test-only yield: admin transfers test USDC into the mock principal vault."
+      ],
+      "discriminator": [
+        114,
+        114,
+        94,
+        75,
+        34,
+        165,
+        110,
+        236
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  111,
+                  115,
+                  115,
+                  108,
+                  101,
+                  115,
+                  115,
+                  45,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "campaign",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  111,
+                  115,
+                  115,
+                  108,
+                  101,
+                  115,
+                  115,
+                  45,
+                  99,
+                  97,
+                  109,
+                  112,
+                  97,
+                  105,
+                  103,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "campaign.id",
+                "account": "Campaign"
+              }
+            ]
+          }
+        },
+        {
+          "name": "source",
+          "writable": true
+        },
+        {
+          "name": "principal_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  105,
+                  110,
+                  99,
+                  105,
+                  112,
+                  97,
+                  108,
+                  45,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "campaign"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "mock_loss",
+      "docs": [
+        "Move mock assets into an inaccessible sink to exercise shortfall and pro-rata withdrawal."
+      ],
+      "discriminator": [
+        40,
+        60,
+        106,
+        226,
+        99,
+        131,
+        201,
+        114
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  111,
+                  115,
+                  115,
+                  108,
+                  101,
+                  115,
+                  115,
+                  45,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "campaign",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  111,
+                  115,
+                  115,
+                  108,
+                  101,
+                  115,
+                  115,
+                  45,
+                  99,
+                  97,
+                  109,
+                  112,
+                  97,
+                  105,
+                  103,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "campaign.id",
+                "account": "Campaign"
+              }
+            ]
+          }
+        },
+        {
+          "name": "principal_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  105,
+                  110,
+                  99,
+                  105,
+                  112,
+                  97,
+                  108,
+                  45,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "campaign"
+              }
+            ]
+          }
+        },
+        {
+          "name": "loss_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  111,
+                  99,
+                  107,
+                  45,
+                  108,
+                  111,
+                  115,
+                  115,
+                  45,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "campaign"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "settle_draw",
+      "discriminator": [
+        175,
+        154,
+        75,
+        30,
+        118,
+        117,
+        107,
+        194
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "signer": true
+        },
+        {
+          "name": "campaign",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  111,
+                  115,
+                  115,
+                  108,
+                  101,
+                  115,
+                  115,
+                  45,
+                  99,
+                  97,
+                  109,
+                  112,
+                  97,
+                  105,
+                  103,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "campaign.id",
+                "account": "Campaign"
+              }
+            ]
+          }
+        },
+        {
+          "name": "prize_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  105,
+                  122,
+                  101,
+                  45,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "campaign"
+              }
+            ]
+          }
+        },
+        {
+          "name": "winner_token",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "update_config",
+      "discriminator": [
+        29,
+        158,
+        252,
+        191,
+        10,
+        83,
+        219,
+        99
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  111,
+                  115,
+                  115,
+                  108,
+                  101,
+                  115,
+                  115,
+                  45,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "fee_bps",
+          "type": {
+            "option": "u16"
+          }
+        },
+        {
+          "name": "paused",
+          "type": {
+            "option": "bool"
+          }
+        }
+      ]
+    },
+    {
+      "name": "withdraw",
+      "discriminator": [
+        183,
+        18,
+        70,
+        156,
+        148,
+        109,
+        161,
+        34
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "position"
+          ]
+        },
+        {
+          "name": "campaign",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  111,
+                  115,
+                  115,
+                  108,
+                  101,
+                  115,
+                  115,
+                  45,
+                  99,
+                  97,
+                  109,
+                  112,
+                  97,
+                  105,
+                  103,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "campaign.id",
+                "account": "Campaign"
+              }
+            ]
+          },
+          "relations": [
+            "position"
+          ]
+        },
+        {
+          "name": "position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "campaign"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "principal_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  105,
+                  110,
+                  99,
+                  105,
+                  112,
+                  97,
+                  108,
+                  45,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "campaign"
+              }
+            ]
+          }
+        },
+        {
+          "name": "destination",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Campaign",
+      "discriminator": [
+        50,
+        40,
+        49,
+        11,
+        157,
+        220,
+        229,
+        192
+      ]
+    },
+    {
+      "name": "Config",
+      "discriminator": [
+        155,
+        12,
+        170,
+        224,
+        30,
+        250,
+        204,
+        130
+      ]
+    },
+    {
+      "name": "Position",
+      "discriminator": [
+        170,
+        188,
+        143,
+        228,
+        122,
+        64,
+        247,
+        208
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "CampaignCancelled",
+      "discriminator": [
+        121,
+        171,
+        21,
+        55,
+        56,
+        234,
+        121,
+        44
+      ]
+    },
+    {
+      "name": "CampaignCreated",
+      "discriminator": [
+        9,
+        98,
+        69,
+        61,
+        53,
+        131,
+        64,
+        152
+      ]
+    },
+    {
+      "name": "ConfigInitialized",
+      "discriminator": [
+        181,
+        49,
+        200,
+        156,
+        19,
+        167,
+        178,
+        91
+      ]
+    },
+    {
+      "name": "ConfigUpdated",
+      "discriminator": [
+        40,
+        241,
+        230,
+        122,
+        11,
+        19,
+        198,
+        194
+      ]
+    },
+    {
+      "name": "Deposited",
+      "discriminator": [
+        111,
+        141,
+        26,
+        45,
+        161,
+        35,
+        100,
+        57
+      ]
+    },
+    {
+      "name": "DrawCommitted",
+      "discriminator": [
+        228,
+        156,
+        123,
+        212,
+        154,
+        211,
+        83,
+        218
+      ]
+    },
+    {
+      "name": "DrawSettled",
+      "discriminator": [
+        137,
+        166,
+        132,
+        30,
+        8,
+        142,
+        219,
+        129
+      ]
+    },
+    {
+      "name": "MockLossRecorded",
+      "discriminator": [
+        46,
+        135,
+        27,
+        131,
+        7,
+        15,
+        184,
+        247
+      ]
+    },
+    {
+      "name": "MockValueChanged",
+      "discriminator": [
+        236,
+        65,
+        184,
+        72,
+        120,
+        251,
+        47,
+        98
+      ]
+    },
+    {
+      "name": "ShortfallDetected",
+      "discriminator": [
+        243,
+        40,
+        62,
+        203,
+        16,
+        64,
+        77,
+        176
+      ]
+    },
+    {
+      "name": "Withdrawn",
+      "discriminator": [
+        20,
+        89,
+        223,
+        198,
+        194,
+        124,
+        219,
+        13
+      ]
+    },
+    {
+      "name": "YieldHarvested",
+      "discriminator": [
+        49,
+        197,
+        226,
+        232,
+        154,
+        211,
+        249,
+        222
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "Unauthorized",
+      "msg": "Unauthorized admin"
+    },
+    {
+      "code": 6001,
+      "name": "FeeTooHigh",
+      "msg": "Fee exceeds the 250 bps prototype cap"
+    },
+    {
+      "code": 6002,
+      "name": "InvalidParams",
+      "msg": "Invalid campaign parameters"
+    },
+    {
+      "code": 6003,
+      "name": "WrongState",
+      "msg": "Wrong campaign state"
+    },
+    {
+      "code": 6004,
+      "name": "Paused",
+      "msg": "Deposits are paused"
+    },
+    {
+      "code": 6005,
+      "name": "Closed",
+      "msg": "Campaign is closed"
+    },
+    {
+      "code": 6006,
+      "name": "CapReached",
+      "msg": "Deposit cap reached"
+    },
+    {
+      "code": 6007,
+      "name": "WrongTokenAccount",
+      "msg": "Token account, owner, or mint does not match"
+    },
+    {
+      "code": 6008,
+      "name": "WrongMint",
+      "msg": "Token mint must be initialized six-decimal test USDC"
+    },
+    {
+      "code": 6009,
+      "name": "ZeroAmount",
+      "msg": "Amount must be positive"
+    },
+    {
+      "code": 6010,
+      "name": "Shortfall",
+      "msg": "Principal is in shortfall; deposits, harvest, and draws are stopped"
+    },
+    {
+      "code": 6011,
+      "name": "HarvestRequired",
+      "msg": "Harvest tracked yield before issuing shares or committing the draw"
+    },
+    {
+      "code": 6012,
+      "name": "NoShares",
+      "msg": "Draw has no eligible shares"
+    },
+    {
+      "code": 6013,
+      "name": "SharesNotMature",
+      "msg": "A deposit in the current slot is not eligible yet"
+    },
+    {
+      "code": 6014,
+      "name": "TimeoutNotElapsed",
+      "msg": "Reveal timeout has not elapsed"
+    },
+    {
+      "code": 6015,
+      "name": "BadSnapshot",
+      "msg": "Position is not part of the committed snapshot"
+    },
+    {
+      "code": 6016,
+      "name": "AlreadyWithdrawn",
+      "msg": "Position already withdrawn"
+    },
+    {
+      "code": 6017,
+      "name": "RandomnessExhausted",
+      "msg": "Draw seed exhausted bounded rejection sampling"
+    },
+    {
+      "code": 6018,
+      "name": "Overflow",
+      "msg": "Checked arithmetic overflow"
+    }
+  ],
+  "types": [
+    {
+      "name": "Campaign",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "id",
+            "type": "u64"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "principal_vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "prize_vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "loss_vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "principal_cap",
+            "type": "u64"
+          },
+          {
+            "name": "close_ts",
+            "type": "i64"
+          },
+          {
+            "name": "state",
+            "type": {
+              "defined": {
+                "name": "CampaignState"
+              }
+            }
+          },
+          {
+            "name": "principal_liability",
+            "type": "u64"
+          },
+          {
+            "name": "mock_value",
+            "type": "u64"
+          },
+          {
+            "name": "share_supply",
+            "type": "u64"
+          },
+          {
+            "name": "prize_balance",
+            "type": "u64"
+          },
+          {
+            "name": "position_count",
+            "type": "u16"
+          },
+          {
+            "name": "max_positions",
+            "type": "u16"
+          },
+          {
+            "name": "last_deposit_slot",
+            "type": "u64"
+          },
+          {
+            "name": "shortfall",
+            "type": "bool"
+          },
+          {
+            "name": "snapshot_share_supply",
+            "type": "u64"
+          },
+          {
+            "name": "snapshot_prize_balance",
+            "type": "u64"
+          },
+          {
+            "name": "snapshot_position_count",
+            "type": "u16"
+          },
+          {
+            "name": "snapshot_slot",
+            "type": "u64"
+          },
+          {
+            "name": "commit_ts",
+            "type": "i64"
+          },
+          {
+            "name": "mock_randomness",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "winner",
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CampaignCancelled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "campaign",
+            "type": "pubkey"
+          },
+          {
+            "name": "returned_prize",
+            "type": "u64"
+          },
+          {
+            "name": "shortfall",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CampaignCreated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "campaign",
+            "type": "pubkey"
+          },
+          {
+            "name": "id",
+            "type": "u64"
+          },
+          {
+            "name": "close_ts",
+            "type": "i64"
+          },
+          {
+            "name": "principal_cap",
+            "type": "u64"
+          },
+          {
+            "name": "max_positions",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CampaignState",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Open"
+          },
+          {
+            "name": "DrawCommitted"
+          },
+          {
+            "name": "Settled"
+          },
+          {
+            "name": "Cancelled"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Config",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "treasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "treasury_token",
+            "type": "pubkey"
+          },
+          {
+            "name": "fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "paused",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ConfigInitialized",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "fee_bps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ConfigUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "paused",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Deposited",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "campaign",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "shares",
+            "type": "u64"
+          },
+          {
+            "name": "eligible_after_slot",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DrawCommitted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "campaign",
+            "type": "pubkey"
+          },
+          {
+            "name": "shares",
+            "type": "u64"
+          },
+          {
+            "name": "positions",
+            "type": "u16"
+          },
+          {
+            "name": "prize",
+            "type": "u64"
+          },
+          {
+            "name": "slot",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DrawSettled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "campaign",
+            "type": "pubkey"
+          },
+          {
+            "name": "winner",
+            "type": "pubkey"
+          },
+          {
+            "name": "winning_share",
+            "type": "u64"
+          },
+          {
+            "name": "prize",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MockLossRecorded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "campaign",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "value",
+            "type": "u64"
+          },
+          {
+            "name": "shortfall",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MockValueChanged",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "campaign",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "value",
+            "type": "u64"
+          },
+          {
+            "name": "shortfall",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Position",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "campaign",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "shares",
+            "type": "u64"
+          },
+          {
+            "name": "eligible_after_slot",
+            "type": "u64"
+          },
+          {
+            "name": "withdrawn",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ShortfallDetected",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "campaign",
+            "type": "pubkey"
+          },
+          {
+            "name": "value",
+            "type": "u64"
+          },
+          {
+            "name": "principal",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Withdrawn",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "campaign",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "shares",
+            "type": "u64"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "remaining_principal",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "YieldHarvested",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "campaign",
+            "type": "pubkey"
+          },
+          {
+            "name": "yield_amount",
+            "type": "u64"
+          },
+          {
+            "name": "fee",
+            "type": "u64"
+          },
+          {
+            "name": "prize",
+            "type": "u64"
+          },
+          {
+            "name": "prize_balance",
+            "type": "u64"
+          }
+        ]
+      }
+    }
+  ]
+}

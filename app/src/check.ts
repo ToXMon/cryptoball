@@ -4,7 +4,9 @@ import { createHash } from "node:crypto";
 import { quickPick, parts, FUNDING_COPY, CLAIM_CAPS, FINISHED_COPY, finishedCopy, sol, fundingCopy } from "./lib.ts";
 import { payout, ERROR_COPY, buyTicket, ProgramError, PROGRAM_ID, describeError, fundingNeeded, isFundingError, FAUCET_URL, FUNDING_ERROR, DEVNET_RPC, funding, payGate, CLAIM_LIFETIME_CAP, CLAIM_MAX, CLAIM_POOL_CAP, CAMPAIGN_ACCOUNT_DISC, DISCOVERY_CAP, claimGate, decodeCampaign, faucetRemaining, iWon, isSettleLog, outcome } from "./program.ts";
 import { readFileSync } from "node:fs";
-import { createBalanceRead, type BalanceState } from "./balance.ts";import { accountFromPrfOutput } from "./passkeyWallet.ts";
+import { createBalanceRead, type BalanceState } from "./balance.ts";
+import { accountFromPrfOutput } from "./passkeyWallet.ts";
+import { decodeLosslessCampaign, LOSSLESS_CAMPAIGN_DISC, LOSSLESS_PROGRAM_ID, LOSSLESS_USDC_MINT } from "./lossless.ts";
 
 // The invariant is "every CryptoballError variant has English copy". Assert it against the real
 // variant list in errors.rs rather than a hardcoded count: a hardcoded number passes happily while
@@ -321,5 +323,30 @@ for (const key of ["ClaimTooLarge", "ClaimLifetimeCap", "FaucetDrained", "Faucet
   assert.ok(ERROR_COPY[key].length > 10, `${key} needs a sentence`);
   assert.ok(!/0x[0-9a-f]{4}/i.test(ERROR_COPY[key]), `${key} must not leak a code`);
 }
+
+// Lossless is a separate program and decodes only its stable Campaign account layout.
+assert.notEqual(LOSSLESS_PROGRAM_ID.toBase58(), PROGRAM_ID.toBase58());
+assert.equal(LOSSLESS_USDC_MINT.toBase58(), "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU");
+const losslessIdl = JSON.parse(readFileSync(new URL("../../ops/lossless_v1.idl.json", import.meta.url), "utf8"));
+assert.equal(losslessIdl.address, LOSSLESS_PROGRAM_ID.toBase58());
+assert.deepEqual([...LOSSLESS_CAMPAIGN_DISC], losslessIdl.accounts.find((a: { name: string }) => a.name === "Campaign").discriminator);
+const losslessBytes = new Uint8Array(220);
+losslessBytes.set(LOSSLESS_CAMPAIGN_DISC);
+const lv = new DataView(losslessBytes.buffer);
+lv.setBigUint64(8, 9n, true);
+lv.setBigInt64(152, 1_790_000_000n, true);
+losslessBytes[160] = 1;
+lv.setBigUint64(161, 2_000_000n, true);
+lv.setBigUint64(169, 1_950_000n, true);
+lv.setBigUint64(177, 2_000_000n, true);
+lv.setBigUint64(185, 50_000n, true);
+lv.setUint16(193, 2, true);
+lv.setUint16(195, 24, true);
+losslessBytes[205] = 1;
+assert.deepEqual(decodeLosslessCampaign("campaign", losslessBytes), {
+  address: "campaign", id: 9n, closeTs: 1_790_000_000, state: "DrawCommitted", principal: 2_000_000n,
+  mockValue: 1_950_000n, shares: 2_000_000n, prize: 50_000n, positions: 2, maxPositions: 24, shortfall: true,
+});
+assert.throws(() => decodeLosslessCampaign("bad", new Uint8Array(220)), /Campaign account/);
 
 console.log("ok", known.address);

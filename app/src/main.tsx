@@ -4,11 +4,13 @@ import "./tokens.css";
 import "./app.css";
 import { Wallets, WalletChip } from "./Wallet";
 import { Confirmation, Landing, Pick, Results } from "./pages";
+import { LosslessLanding } from "./lossless-page";
 import { useRoute } from "./lib";
 
 function Router() {
   const [page, a, b] = useRoute();
   switch (page) {
+    case "lossless": return <LosslessLanding />;
     case "pick": return <Pick id={Number(a)} />;
     case "ticket": return <Confirmation id={Number(a)} index={Number(b)} />;
     case "results": return <Results id={Number(a)} />;
@@ -22,6 +24,7 @@ function App() {
       <p className="cb-banner" role="status">Devnet only. Play money.</p>
       <header className="cb-head">
         <a className="cb-logo" href="#/">Cryptoball</a>
+        <nav aria-label="Products" className="cb-nav"><a href="#/">SOL raffle</a><a href="#/lossless">USDC prototype</a></nav>
         <WalletChip />
       </header>
       <main className="cb-main"><Router /></main>

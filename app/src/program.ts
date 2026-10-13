@@ -116,7 +116,7 @@ const DISCRIMINATORS = {
 export const { campaign: CAMPAIGN_ACCOUNT_DISC } = DISCRIMINATORS;
 
 /** base58 of a few discriminator bytes, because an RPC `memcmp` filter takes base58 and the app adds no dependency for eight bytes. */
-const base58 = (bytes: number[]) => {
+export const base58 = (bytes: number[]) => {
   const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
   let n = 0n;
   for (const b of bytes) n = n * 256n + BigInt(b);
