@@ -337,8 +337,10 @@ export async function settleLossless(c: LosslessCampaign, wallet?: WalletSigner)
   const positions = await fetchLosslessPositions(c.address);
   if (positions.length !== c.snapshotPositions || positions.some((p) => p.withdrawn || p.eligibleAfterSlot > c.snapshotSlot)) throw new Error("Position set does not match the committed snapshot");
   const winner = deterministicWinner(positions, c.mockRandomness, c.snapshotShares);
+  const setup: TransactionInstruction[] = [];
+  const winnerToken = await ensureAta(new PublicKey(winner), wallet.publicKey, setup);
+  if (setup.length) await send(setup, wallet);
   const ixs: TransactionInstruction[] = [];
-  const winnerToken = await ensureAta(new PublicKey(winner), wallet.publicKey, ixs);
   ixs.push(ix("settle_draw", [
     account(wallet.publicKey, false, true), fixedCampaign(c.address), account(new PublicKey(c.prizeVault), true), account(winnerToken, true), tokenProgram(),
     ...positions.map((p) => account(new PublicKey(p.address))),
@@ -358,7 +360,7 @@ export async function withdrawLossless(c: LosslessCampaign, owner: string, walle
   ixs.push(ix("withdraw", [
     account(wallet.publicKey, true, true), fixedCampaign(c.address),
     account(positionPda(new PublicKey(c.address), wallet.publicKey), true), account(new PublicKey(c.principalVault), true),
-    account(destination, true), tokenProgram(),
+    account(new PublicKey(c.prizeVault), true), account(destination, true), tokenProgram(),
   ]));
   return send(ixs, wallet);
 }

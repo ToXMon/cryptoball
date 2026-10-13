@@ -86,7 +86,7 @@ function LosslessCampaignCard({ c, admin, slot, revision, refresh }: { c: Lossle
         {canWithdraw && <button className="cb-btn cb-btn--primary" disabled={!!busy} onClick={() => void transact("Withdraw", () => withdrawLossless(c, me ?? "", wallet))}>{busy === "Withdraw" ? "Withdrawing…" : "Withdraw remaining mock USDC"}</button>}
         {!me && (c.state === "Open" || c.shortfall || c.state === "Settled" || c.state === "Cancelled") && <button className="cb-btn cb-btn--ghost" onClick={openWallet}>Connect wallet to view your position</button>}
       </div>
-      {c.state === "DrawCommitted" && <p className="cb-muted" aria-live="polite">Anticipation: the snapshot is fixed. Reveal the stored mock seed to see which share range wins.</p>}
+      {c.state === "DrawCommitted" && <p className="cb-muted" aria-live="polite">Anticipation: the snapshot is fixed. Reveal the stored mock seed to see which share range wins. If the winner has no test-USDC account yet, your wallet may ask for a separate account-creation approval first.</p>}
       {notice && <p className="cb-muted" role="status">{notice}</p>}
       {error != null && <Err e={error} describe={describeLosslessError} />}
     </article>

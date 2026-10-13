@@ -463,21 +463,52 @@ pub mod lossless_v1 {
         validate_token_account(&ctx.accounts.principal_vault, c.mint, c.key())?;
         validate_token_account(&ctx.accounts.destination, c.mint, p.owner)?;
         let shares = p.shares;
-        let payout = withdrawal_amount(shares, c.mock_value, c.principal_liability)?;
-        if payout > 0 {
+        let open_shortfall = c.state == CampaignState::Open && c.shortfall;
+        let tracked_value = if open_shortfall {
+            c.mock_value
+                .checked_add(c.prize_balance)
+                .ok_or(E::Overflow)?
+        } else {
+            c.mock_value
+        };
+        let payout = if open_shortfall && shares == c.principal_liability {
+            tracked_value
+        } else {
+            withdrawal_amount(shares, tracked_value, c.principal_liability)?
+        };
+        let principal_payout = payout.min(c.mock_value);
+        let prize_payout = payout.checked_sub(principal_payout).ok_or(E::Overflow)?;
+        if principal_payout > 0 {
             campaign_transfer(
                 &ctx.accounts.token_program,
                 &ctx.accounts.principal_vault,
                 &ctx.accounts.destination,
                 c,
-                payout,
+                principal_payout,
+            )?;
+        }
+        if prize_payout > 0 {
+            validate_token_account(&ctx.accounts.prize_vault, c.mint, c.key())?;
+            campaign_transfer(
+                &ctx.accounts.token_program,
+                &ctx.accounts.prize_vault,
+                &ctx.accounts.destination,
+                c,
+                prize_payout,
             )?;
         }
         c.principal_liability = c
             .principal_liability
             .checked_sub(shares)
             .ok_or(E::Overflow)?;
-        c.mock_value = c.mock_value.checked_sub(payout).ok_or(E::Overflow)?;
+        c.mock_value = c
+            .mock_value
+            .checked_sub(principal_payout)
+            .ok_or(E::Overflow)?;
+        c.prize_balance = c
+            .prize_balance
+            .checked_sub(prize_payout)
+            .ok_or(E::Overflow)?;
         c.share_supply = c.share_supply.checked_sub(shares).ok_or(E::Overflow)?;
         c.position_count = c.position_count.checked_sub(1).ok_or(E::Overflow)?;
         c.shortfall = c.mock_value < c.principal_liability;
@@ -927,6 +958,9 @@ pub struct Withdraw<'info> {
     /// CHECK: principal-only vault.
     #[account(mut, address = campaign.principal_vault, seeds = [PRINCIPAL_SEED, campaign.key().as_ref()], bump)]
     pub principal_vault: UncheckedAccount<'info>,
+    /// CHECK: prize-only vault used for open-shortfall withdrawals.
+    #[account(mut, address = campaign.prize_vault, seeds = [PRIZE_SEED, campaign.key().as_ref()], bump)]
+    pub prize_vault: UncheckedAccount<'info>,
     /// CHECK: owner's token account with the configured mint.
     #[account(mut)]
     pub destination: UncheckedAccount<'info>,

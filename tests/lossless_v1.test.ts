@@ -35,7 +35,7 @@ class LosslessWorld {
   mint = LOSSLESS_USDC_MINT;
   treasuryToken = Keypair.generate().publicKey;
   adminToken = Keypair.generate().publicKey;
-  users = [Keypair.generate(), Keypair.generate()];
+  users = Array.from({ length: 24 }, () => Keypair.generate());
   userTokens = this.users.map(() => Keypair.generate().publicKey);
   wrongMint = Keypair.generate().publicKey;
   wrongAuthority = Keypair.generate().publicKey;
@@ -170,7 +170,7 @@ class LosslessWorld {
     const campaign = campaignPda(id);
     return this.m.withdraw().accountsPartial({
       owner: user.publicKey, campaign, position: positionPda(campaign, user.publicKey),
-      principalVault: vaultPda("principal-vault", campaign), destination, tokenProgram: TOKEN_ID,
+      principalVault: vaultPda("principal-vault", campaign), prizeVault: vaultPda("prize-vault", campaign), destination, tokenProgram: TOKEN_ID,
     }).instruction();
   }
 
@@ -275,6 +275,19 @@ describe("lossless-v1 accounting (LiteSVM + devnet SPL Token binary)", () => {
     w.fails([await w.createIx(7n, closeTs, 10_000_000n, 25)], [w.admin], err("InvalidParams"));
   });
 
+  it("settles a full 24-position campaign when the winner ATA already exists", async () => {
+    const w = new LosslessWorld(); await w.init();
+    const id = 6n; const campaign = await w.campaign(id);
+    for (const user of w.users) w.ok([await w.depositIx(id, user)], [user]);
+    w.setTime(campaign.closeTs, w.slot + 1n);
+    w.ok([await w.commitIx(id)], [w.payer]);
+    const positions = w.users.map((user) => positionPda(campaign.address, user.publicKey))
+      .sort((a, b) => Buffer.compare(a.toBuffer(), b.toBuffer()));
+    const winner = w.users.find((user) => positionPda(campaign.address, user.publicKey).equals(positions[0]))!;
+    w.ok([await w.settleIx(id, w.userTokens[w.users.indexOf(winner)], positions)], [w.payer]);
+    expect(w.acct(campaign.address).state).to.deep.equal({ settled: {} });
+  });
+
   it("harvests existing yield before issuing more one-to-one shares", async () => {
     const w = new LosslessWorld(); await w.init();
     const id = 8n; const campaign = await w.campaign(id);
@@ -303,6 +316,25 @@ describe("lossless-v1 accounting (LiteSVM + devnet SPL Token binary)", () => {
     expect(w.balance(token)).to.equal(4_600_000n);
     expect(w.acct(campaign.address).principalLiability.toString()).to.equal("0");
     w.ok([await w.cancelIx(id)], [w.payer]);
+  });
+
+  it("withdraws open shortfall from principal and prize ledgers", async () => {
+    const w = new LosslessWorld(); await w.init();
+    const id = 11n; const campaign = await w.campaign(id);
+    const [alice, bob] = w.users; const [aliceToken, bobToken] = w.userTokens;
+    w.ok([await w.depositIx(id, alice), await w.depositIx(id, bob)], [alice, bob]);
+    w.ok([await w.mockAccrueIx(id, w.admin, 2_000_000n)], [w.admin]);
+    w.ok([await w.harvestIx(id)], [w.payer]);
+    w.ok([await w.mockLossIx(id, 1_500_000n)], [w.admin]);
+    expect(w.acct(campaign.address).prizeBalance.toString()).to.equal("1950000");
+    w.ok([await w.withdrawIx(id, alice)], [alice]);
+    expect(w.balance(aliceToken)).to.equal(6_225_000n);
+    w.ok([await w.withdrawIx(id, bob)], [bob]);
+    expect(w.balance(bobToken)).to.equal(6_225_000n);
+    const state = w.acct(campaign.address);
+    expect([state.mockValue.toString(), state.prizeBalance.toString(), state.principalLiability.toString()]).to.deep.equal(["0", "0", "0"]);
+    expect(w.balance(vaultPda("principal-vault", campaign.address))).to.equal(0n);
+    expect(w.balance(vaultPda("prize-vault", campaign.address))).to.equal(0n);
   });
 
   it("clears shortfall only when mock assets restore full principal and then permits a draw", async () => {
