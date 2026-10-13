@@ -6,7 +6,7 @@ import * as path from "node:path";
 import { expect } from "chai";
 import { decodeLosslessCampaign, LOSSLESS_USDC_MINT } from "../app/src/lossless";
 
-const BN: any = (anchor as any).default.BN;
+const BN: any = (anchor as any).BN;
 const root = process.cwd();
 const idl = JSON.parse(fs.readFileSync(path.join(root, "target/idl/lossless_v1.json"), "utf8"));
 const PROGRAM_ID = new PublicKey(idl.address);
