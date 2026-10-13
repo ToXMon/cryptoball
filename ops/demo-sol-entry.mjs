@@ -11,6 +11,7 @@ const EXPLORER = "https://explorer.solana.com";
 export const DEMO_PICK = { numbers: [7, 14, 21, 35, 49], bonus: 11 };
 export const entryAction = (ticket, expected) => {
   if (!ticket) return "buy";
+  if (!expected?.buyer) return "unverified";
   const same = ticket.buyer === expected.buyer && ticket.index === 0 && ticket.status === "Active"
     && ticket.bonus === expected.bonus && ticket.numbers.join(",") === expected.numbers.join(",");
   if (!same) throw new Error("ticket zero already belongs to another entry; refusing to buy twice or alter it");
@@ -35,7 +36,12 @@ async function main(argv = process.argv.slice(2)) {
     const walletPath = process.env.ANCHOR_WALLET || path.join(process.env.HOME || "", ".tape", "cryptoball-deploy.json");
     payer = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(walletPath, "utf8"))));
   }
-  if (current && entryAction(current, { ...DEMO_PICK, buyer: payer?.publicKey.toBase58() ?? current.buyer }) === "exists") {
+  const currentAction = entryAction(current, payer ? { ...DEMO_PICK, buyer: payer.publicKey.toBase58() } : undefined);
+  if (currentAction === "unverified") {
+    console.log(`entry exists: buyer=${current.buyer} (owner unverified; pass --send to verify) asset=${current.asset}`);
+    return 0;
+  }
+  if (currentAction === "exists") {
     if (campaign.ticketCount !== 1) throw new Error("campaign contains additional entries; refusing to treat the demo as an idempotent no-op");
     console.log(`entry already exists: buyer=${current.buyer} asset=${current.asset}`);
     return 0;

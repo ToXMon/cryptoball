@@ -49,9 +49,13 @@ export const LOSSLESS_ERROR_COPY = [
 
 export function describeLosslessError(e: unknown): string {
   const message = e instanceof Error ? e.message : String(e);
-  const code = message.match(/custom program error: 0x([0-9a-f]+)/i)?.[1];
-  const copy = code == null ? undefined : LOSSLESS_ERROR_COPY[parseInt(code, 16) - 6000];
-  return copy ?? describeError(e);
+  const hex = message.match(/custom program error: 0x([0-9a-f]+)/i)?.[1];
+  const decimal = message.match(/["']?Custom["']?\s*:\s*(\d+)/)?.[1];
+  const code = hex == null ? decimal == null ? undefined : Number(decimal) : parseInt(hex, 16);
+  const copy = code == null ? undefined : LOSSLESS_ERROR_COPY[code - 6000];
+  if (copy) return copy;
+  if (code != null) return "The Lossless transaction failed. Check the campaign state and try again.";
+  return describeError(e);
 }
 
 export function assertConfirmed(signature: string, result: { value: { err: unknown } }) {
