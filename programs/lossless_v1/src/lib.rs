@@ -18,6 +18,7 @@ const PRIZE_SEED: &[u8] = b"prize-vault";
 const LOSS_SEED: &[u8] = b"mock-loss-vault";
 const POSITION_SEED: &[u8] = b"position";
 const TOKEN_PROGRAM_ID: Pubkey = pubkey!("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+const LOSSLESS_USDC_MINT: Pubkey = pubkey!("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU");
 const MAX_FEE_BPS: u16 = 250;
 // ponytail: one-transaction settlement fits the 1232-byte packet limit at 24 positions; larger needs batching.
 const MAX_POSITIONS: u16 = 24;
@@ -537,6 +538,7 @@ fn withdrawal_amount(shares: u64, value: u64, liability: u64) -> Result<u64> {
 }
 
 fn validate_mint(mint: &UncheckedAccount) -> Result<()> {
+    require_keys_eq!(mint.key(), LOSSLESS_USDC_MINT, E::WrongMint);
     require!(mint.owner == &TOKEN_PROGRAM_ID, E::WrongMint);
     let data = mint.try_borrow_data()?;
     require!(

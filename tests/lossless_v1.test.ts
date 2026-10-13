@@ -10,6 +10,7 @@ const root = process.cwd();
 const idl = JSON.parse(fs.readFileSync(path.join(root, "target/idl/lossless_v1.json"), "utf8"));
 const PROGRAM_ID = new PublicKey(idl.address);
 const TOKEN_ID = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+const LOSSLESS_USDC_MINT = new PublicKey("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU");
 const LOADER = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111");
 const SOL = 1_000_000_000n;
 const u64le = (n: bigint | number) => { const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(n)); return b; };
@@ -31,7 +32,7 @@ class LosslessWorld {
   attacker = Keypair.generate();
   payer = Keypair.generate();
   treasury = Keypair.generate();
-  mint = Keypair.generate().publicKey;
+  mint = LOSSLESS_USDC_MINT;
   treasuryToken = Keypair.generate().publicKey;
   adminToken = Keypair.generate().publicKey;
   users = [Keypair.generate(), Keypair.generate()];
@@ -194,6 +195,7 @@ describe("lossless-v1 accounting (LiteSVM + devnet SPL Token binary)", () => {
     const w = new LosslessWorld();
     // A non-upgrade-authority cannot initialize the singleton config.
     w.fails([await w.initIx(w.attacker)], [w.attacker], err("Unauthorized"));
+    w.fails([await w.initIx(w.authority, w.wrongMint)], [w.authority], err("WrongMint"));
     await w.init();
     const id = 1n;
     const campaign = await w.campaign(id);
