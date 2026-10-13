@@ -12,11 +12,9 @@ export const LOSSLESS_CONFIG_DISC = sha256(new TextEncoder().encode("account:Con
 const connection = new Connection(DEVNET_RPC, "confirmed");
 const STATES = ["Open", "DrawCommitted", "Settled", "Cancelled"] as const;
 const losslessConfig = () => pda([new TextEncoder().encode("lossless-config")]);
-const campaignPda = (id: bigint) => pda([new TextEncoder().encode("lossless-campaign"), u64le(id)]);
 const positionPda = (campaign: PublicKey, owner: PublicKey) => pda([new TextEncoder().encode("position"), campaign.toBytes(), owner.toBytes()]);
 const pda = (seeds: Uint8Array[]) => PublicKey.findProgramAddressSync(seeds, LOSSLESS_PROGRAM_ID)[0];
 const u64le = (n: bigint | number) => { const b = new Uint8Array(8); new DataView(b.buffer).setBigUint64(0, BigInt(n), true); return b; };
-const keyBytes = (key: PublicKey) => key.toBytes();
 const disc = (name: string) => sha256(new TextEncoder().encode(`global:${name}`)).slice(0, 8);
 const readKey = (bytes: Uint8Array, offset: number) => new PublicKey(bytes.slice(offset, offset + 32));
 const compareKeys = (a: string, b: string) => {
@@ -103,7 +101,7 @@ export function decodeLosslessCampaign(address: string, bytes: Uint8Array): Loss
     address, id, mint, principalVault, prizeVault, lossVault, principalCap, closeTs, state,
     principal, mockValue, shares, prize, positions, maxPositions, lastDepositSlot, shortfall,
     snapshotShares, snapshotPrize, snapshotPositions, snapshotSlot, commitTs,
-    mockRandomness: randomness.some(Boolean) ? randomness : undefined,
+    mockRandomness: state === "DrawCommitted" || state === "Settled" ? randomness : undefined,
     winner: /^1+$/.test(rawWinner) ? undefined : rawWinner,
   };
 }
