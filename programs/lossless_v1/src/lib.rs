@@ -217,7 +217,10 @@ pub mod lossless_v1 {
     pub fn mock_loss(ctx: Context<MockLoss>, amount: u64) -> Result<()> {
         require!(amount > 0, E::ZeroAmount);
         let c = &mut ctx.accounts.campaign;
-        require!(c.state == CampaignState::Open, E::WrongState);
+        require!(
+            matches!(c.state, CampaignState::Open | CampaignState::DrawCommitted),
+            E::WrongState
+        );
         let value = c.mock_value.checked_sub(amount).ok_or(E::Shortfall)?;
         campaign_transfer(
             &ctx.accounts.token_program,
@@ -255,15 +258,10 @@ pub mod lossless_v1 {
             c.mint,
             ctx.accounts.config.treasury,
         )?;
-        if c.mock_value < c.principal_liability {
-            c.shortfall = true;
-            emit!(ShortfallDetected {
-                campaign: c.key(),
-                value: c.mock_value,
-                principal: c.principal_liability
-            });
-            return Ok(());
-        }
+        require!(
+            !c.shortfall && c.mock_value >= c.principal_liability,
+            E::Shortfall
+        );
         c.shortfall = false;
         let yield_amount = c
             .mock_value
@@ -334,6 +332,10 @@ pub mod lossless_v1 {
         let c = &mut ctx.accounts.campaign;
         require!(c.state == CampaignState::DrawCommitted, E::WrongState);
         require!(
+            !c.shortfall && c.mock_value >= c.principal_liability,
+            E::Shortfall
+        );
+        require!(
             c.share_supply == c.snapshot_share_supply
                 && c.position_count == c.snapshot_position_count,
             E::BadSnapshot
@@ -403,13 +405,15 @@ pub mod lossless_v1 {
         let c = &mut ctx.accounts.campaign;
         let now = Clock::get()?.unix_timestamp;
         match c.state {
-            CampaignState::Open => require!(now >= c.close_ts, E::Closed),
+            CampaignState::Open => require!(c.shortfall || now >= c.close_ts, E::Closed),
             CampaignState::DrawCommitted => {
-                let deadline = c
-                    .commit_ts
-                    .checked_add(REVEAL_TIMEOUT_SECS)
-                    .ok_or(E::Overflow)?;
-                require!(now > deadline, E::TimeoutNotElapsed);
+                if !c.shortfall {
+                    let deadline = c
+                        .commit_ts
+                        .checked_add(REVEAL_TIMEOUT_SECS)
+                        .ok_or(E::Overflow)?;
+                    require!(now > deadline, E::TimeoutNotElapsed);
+                }
             }
             _ => return err!(E::WrongState),
         }
@@ -450,8 +454,7 @@ pub mod lossless_v1 {
     pub fn withdraw(ctx: Context<Withdraw>) -> Result<()> {
         let c = &mut ctx.accounts.campaign;
         require!(
-            matches!(c.state, CampaignState::Settled | CampaignState::Cancelled)
-                || (c.state == CampaignState::Open && c.shortfall),
+            matches!(c.state, CampaignState::Settled | CampaignState::Cancelled),
             E::WrongState
         );
         let p = &mut ctx.accounts.position;
@@ -697,12 +700,6 @@ pub struct MockLossRecorded {
     pub amount: u64,
     pub value: u64,
     pub shortfall: bool,
-}
-#[event]
-pub struct ShortfallDetected {
-    pub campaign: Pubkey,
-    pub value: u64,
-    pub principal: u64,
 }
 #[event]
 pub struct YieldHarvested {

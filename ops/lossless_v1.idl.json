@@ -1537,19 +1537,6 @@
       ]
     },
     {
-      "name": "ShortfallDetected",
-      "discriminator": [
-        243,
-        40,
-        62,
-        203,
-        16,
-        64,
-        77,
-        176
-      ]
-    },
-    {
       "name": "Withdrawn",
       "discriminator": [
         20,
@@ -2083,26 +2070,6 @@
           {
             "name": "bump",
             "type": "u8"
-          }
-        ]
-      }
-    },
-    {
-      "name": "ShortfallDetected",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "campaign",
-            "type": "pubkey"
-          },
-          {
-            "name": "value",
-            "type": "u64"
-          },
-          {
-            "name": "principal",
-            "type": "u64"
           }
         ]
       }

@@ -31,6 +31,7 @@ export function LosslessLanding() {
               <dt>Principal ledger</dt><dd className="cb-num">{usdc(c.principal)}</dd>
               <dt>Mock value</dt><dd className="cb-num">{usdc(c.mockValue)}</dd>
               <dt>Prize ledger</dt><dd className="cb-num">{usdc(c.prize)}</dd>
+              {c.shortfall && <><dt>Recovery after cancellation</dt><dd>{usdc(c.mockValue + c.prize)} total, withdrawn pro rata after cancellation; not one-for-one.</dd></>}
               <dt>Shares / positions</dt><dd className="cb-num">{usdc(c.shares)} / {c.positions} of {c.maxPositions}</dd>
               <dt>Closes</dt><dd>{dateTime(c.closeTs)}</dd>
               <dt>Account</dt><dd><a className="cb-addr" href={explorer("address", c.address)} target="_blank" rel="noreferrer">{short(c.address)}</a></dd>
