@@ -2,11 +2,12 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { quickPick, parts, FUNDING_COPY, CLAIM_CAPS, FINISHED_COPY, finishedCopy, sol, fundingCopy } from "./lib.ts";
-import { payout, ERROR_COPY, buyTicket, ProgramError, PROGRAM_ID, describeError, fundingNeeded, isFundingError, FAUCET_URL, FUNDING_ERROR, DEVNET_RPC, funding, payGate, CLAIM_LIFETIME_CAP, CLAIM_MAX, CLAIM_POOL_CAP, CAMPAIGN_ACCOUNT_DISC, DISCOVERY_CAP, claimGate, decodeCampaign, faucetRemaining, iWon, isSettleLog, outcome } from "./program.ts";
+import { payout, ERROR_COPY, buyTicket, ProgramError, PROGRAM_ID, describeError, fundingNeeded, isFundingError, FAUCET_URL, FUNDING_ERROR, DEVNET_RPC, funding, payGate, CLAIM_LIFETIME_CAP, CLAIM_MAX, CLAIM_POOL_CAP, CAMPAIGN_ACCOUNT_DISC, DISCOVERY_CAP, claimGate, campaignAddress, decodeCampaign, decodeTicket, faucetRemaining, iWon, isSettleLog, outcome } from "./program.ts";
 import { readFileSync } from "node:fs";
+import { PublicKey } from "@solana/web3.js";
 import { createBalanceRead, type BalanceState } from "./balance.ts";
 import { accountFromPrfOutput } from "./passkeyWallet.ts";
-import { decodeLosslessCampaign, LOSSLESS_CAMPAIGN_DISC, LOSSLESS_PROGRAM_ID, LOSSLESS_USDC_MINT } from "./lossless.ts";
+import { decodeLosslessCampaign, decodeLosslessConfig, decodeLosslessPosition, deterministicWinner, estimatedOdds, LOSSLESS_CAMPAIGN_DISC, LOSSLESS_CONFIG_DISC, LOSSLESS_POSITION_DISC, LOSSLESS_PROGRAM_ID, LOSSLESS_USDC_MINT, parseUsdc, type LosslessPosition } from "./lossless.ts";
 
 // The invariant is "every CryptoballError variant has English copy". Assert it against the real
 // variant list in errors.rs rather than a hardcoded count: a hardcoded number passes happily while
@@ -261,6 +262,15 @@ assert.equal(outcome({ state: "Settled", winningIndex: 0, winner: "w" }), "settl
 assert.equal(outcome({ state: "Settled" }), "settled"); // ticket read failed: still a settled draw
 assert.equal(outcome({ state: "Cancelled" }), "cancelled");
 assert.equal(outcome({ state: "DrawCommitted" }), "committed");
+// A Ticket stores its campaign PDA before its index; the account decoder must follow that wire layout.
+const ticketBytes = new Uint8Array(116), ticketBuyer = new PublicKey(new Uint8Array(32).fill(1)), ticketAsset = new PublicKey(new Uint8Array(32).fill(2));
+ticketBytes.set(createHash("sha256").update("account:Ticket").digest().subarray(0, 8));
+ticketBytes.set(new PublicKey(campaignAddress(7)).toBytes(), 8);
+new DataView(ticketBytes.buffer).setUint32(40, 3, true);
+ticketBytes.set(ticketBuyer.toBytes(), 44); ticketBytes.set([2, 9, 17, 44, 68], 76); ticketBytes[81] = 13;
+ticketBytes.set(ticketAsset.toBytes(), 82); ticketBytes[114] = 0;
+assert.deepEqual(decodeTicket(ticketBytes, 7), { campaign: 7, index: 3, buyer: ticketBuyer.toBase58(), numbers: [2, 9, 17, 44, 68], bonus: 13, asset: ticketAsset.toBase58(), status: "Active", signature: "" });
+assert.throws(() => decodeTicket(ticketBytes, 8), (e) => e instanceof ProgramError && e.code === "BadAccount");
 assert.ok(iWon({ state: "Settled", winner: "me" }, "me"));
 assert.ok(!iWon({ state: "Settled", winner: "me" }, "you"));
 assert.ok(!iWon({ state: "Settled", winner: "me" }, undefined)); // not connected: nothing claimed about the viewer
@@ -324,29 +334,46 @@ for (const key of ["ClaimTooLarge", "ClaimLifetimeCap", "FaucetDrained", "Faucet
   assert.ok(!/0x[0-9a-f]{4}/i.test(ERROR_COPY[key]), `${key} must not leak a code`);
 }
 
-// Lossless is a separate program and decodes only its stable Campaign account layout.
+// Lossless is separate from the SOL raffle and its campaign/account layouts are pinned to the committed IDL.
 assert.notEqual(LOSSLESS_PROGRAM_ID.toBase58(), PROGRAM_ID.toBase58());
 assert.equal(LOSSLESS_USDC_MINT.toBase58(), "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU");
 const losslessIdl = JSON.parse(readFileSync(new URL("../../ops/lossless_v1.idl.json", import.meta.url), "utf8"));
 assert.equal(losslessIdl.address, LOSSLESS_PROGRAM_ID.toBase58());
 assert.deepEqual([...LOSSLESS_CAMPAIGN_DISC], losslessIdl.accounts.find((a: { name: string }) => a.name === "Campaign").discriminator);
-const losslessBytes = new Uint8Array(220);
+assert.deepEqual([...LOSSLESS_POSITION_DISC], losslessIdl.accounts.find((a: { name: string }) => a.name === "Position").discriminator);
+assert.deepEqual([...LOSSLESS_CONFIG_DISC], losslessIdl.accounts.find((a: { name: string }) => a.name === "Config").discriminator);
+const losslessBytes = new Uint8Array(305);
 losslessBytes.set(LOSSLESS_CAMPAIGN_DISC);
 const lv = new DataView(losslessBytes.buffer);
-lv.setBigUint64(8, 9n, true);
-lv.setBigInt64(152, 1_790_000_000n, true);
-losslessBytes[160] = 1;
-lv.setBigUint64(161, 2_000_000n, true);
-lv.setBigUint64(169, 1_950_000n, true);
-lv.setBigUint64(177, 2_000_000n, true);
-lv.setBigUint64(185, 50_000n, true);
-lv.setUint16(193, 2, true);
-lv.setUint16(195, 24, true);
-losslessBytes[205] = 1;
-assert.deepEqual(decodeLosslessCampaign("campaign", losslessBytes), {
-  address: "campaign", id: 9n, closeTs: 1_790_000_000, state: "DrawCommitted", principal: 2_000_000n,
-  mockValue: 1_950_000n, shares: 2_000_000n, prize: 50_000n, positions: 2, maxPositions: 24, shortfall: true,
-});
+const adminKey = new PublicKey(new Uint8Array(32).fill(1));
+losslessBytes.set(LOSSLESS_USDC_MINT.toBytes(), 16);
+losslessBytes.set(adminKey.toBytes(), 48); losslessBytes.set(adminKey.toBytes(), 80); losslessBytes.set(adminKey.toBytes(), 112);
+lv.setBigUint64(8, 9n, true); lv.setBigUint64(144, 10_000_000n, true);
+lv.setBigInt64(152, 1_790_000_000n, true); losslessBytes[160] = 1;
+lv.setBigUint64(161, 2_000_000n, true); lv.setBigUint64(169, 1_950_000n, true);
+lv.setBigUint64(177, 2_000_000n, true); lv.setBigUint64(185, 50_000n, true);
+lv.setUint16(193, 2, true); lv.setUint16(195, 24, true); lv.setBigUint64(197, 20n, true); losslessBytes[205] = 1;
+lv.setBigUint64(206, 2_000_000n, true); lv.setBigUint64(214, 50_000n, true); lv.setUint16(222, 2, true);
+lv.setBigUint64(224, 21n, true); lv.setBigInt64(232, 1_790_000_001n, true);
+losslessBytes.set(Array.from({ length: 32 }, (_, i) => i + 1), 240);
+losslessBytes.set(adminKey.toBytes(), 272);
+const losslessCampaign = decodeLosslessCampaign("campaign", losslessBytes);
+assert.deepEqual([losslessCampaign.id, losslessCampaign.closeTs, losslessCampaign.state, losslessCampaign.principal, losslessCampaign.mockValue, losslessCampaign.prize, losslessCampaign.snapshotPositions, losslessCampaign.shortfall], [9n, 1_790_000_000, "DrawCommitted", 2_000_000n, 1_950_000n, 50_000n, 2, true]);
+assert.equal(losslessCampaign.winner, adminKey.toBase58());
 assert.throws(() => decodeLosslessCampaign("bad", new Uint8Array(220)), /Campaign account/);
+const positionBytes = new Uint8Array(90); positionBytes.set(LOSSLESS_POSITION_DISC); positionBytes.set(adminKey.toBytes(), 8); positionBytes.set(adminKey.toBytes(), 40);
+new DataView(positionBytes.buffer).setBigUint64(72, 1_000_000n, true); new DataView(positionBytes.buffer).setBigUint64(80, 23n, true);
+assert.deepEqual(decodeLosslessPosition("position", positionBytes), { address: "position", campaign: adminKey.toBase58(), owner: adminKey.toBase58(), shares: 1_000_000n, eligibleAfterSlot: 23n, withdrawn: false });
+const configBytes = new Uint8Array(140); configBytes.set(LOSSLESS_CONFIG_DISC); configBytes.set(adminKey.toBytes(), 8); configBytes.set(LOSSLESS_USDC_MINT.toBytes(), 40); configBytes.set(adminKey.toBytes(), 72); configBytes.set(adminKey.toBytes(), 104);
+new DataView(configBytes.buffer).setUint16(136, 250, true); configBytes[138] = 1;
+assert.deepEqual(decodeLosslessConfig(configBytes), { admin: adminKey.toBase58(), mint: LOSSLESS_USDC_MINT.toBase58(), treasury: adminKey.toBase58(), treasuryToken: adminKey.toBase58(), feeBps: 250, paused: true });
+assert.equal(parseUsdc("1.000001"), 1_000_001n); assert.equal(parseUsdc("0.000001"), 1n);
+assert.throws(() => parseUsdc("1.0000001"), /six decimals/); assert.throws(() => parseUsdc("0"), /positive/);
+const alice: LosslessPosition = { address: "a", campaign: "c", owner: "alice", shares: 1n, eligibleAfterSlot: 23n, withdrawn: false };
+const bob: LosslessPosition = { ...alice, owner: "bob", shares: 3n };
+assert.deepEqual(estimatedOdds(alice, losslessCampaign, 20n), { eligible: false, numerator: 0n, denominator: 2_000_000n });
+assert.equal(deterministicWinner([alice, bob], new Array(32).fill(0), 4n), "alice");
+assert.equal(deterministicWinner([alice, bob], [2, ...new Array(31).fill(0)], 4n), "bob");
+assert.throws(() => deterministicWinner([alice, bob], new Array(32).fill(255), 3n), /exhausted/);
 
 console.log("ok", known.address);

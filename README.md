@@ -10,13 +10,14 @@ Phases 1 to 2 (requirements, architecture, scaffold), the frontend phase and the
 The program is **live on devnet** (receipts below) and the web app talks to it for real: `app/src/program.ts` builds `buy_ticket` / `refund_ticket` instructions against the deployed program id and the devnet RPC. The web app also offers a **passkey wallet** (`app/src/passkeyWallet.ts`): a Wallet Standard wallet whose ed25519 key is derived on the player's device from a WebAuthn passkey PRF output via [mera](https://mera.category.xyz) 0.2.0. It is a plain keypair, not a smart account; installed wallets (Phantom and friends) remain as a second path in the same dialog.
 `settle_draw` reads the value the oracle persisted in the randomness account, so settlement is not bound to the exact reveal slot; it must still land inside the same window `cancel_campaign` uses (see the receipts' operational notes). Build order is `docs/design.md` section 17.
 
-Lossless V1 is a separate devnet-only mock-adapter prototype deployed at [`EcFzauTsYV41yUFxnJtx17fz4awZnGRaQKtZWiBF69VF`](https://explorer.solana.com/address/EcFzauTsYV41yUFxnJtx17fz4awZnGRaQKtZWiBF69VF?cluster=devnet), surfaced on the app's `#/lossless` route. The permanent static app is [published here](https://robust-diner-7jvk.here.now/). It uses devnet USDC test tokens and caller-supplied test randomness; it does not change the SOL raffle program or deployment. Scope and deployment receipt: [docs/lossless-v1.md](docs/lossless-v1.md).
+Lossless V1 is a separate devnet-only mock-adapter prototype deployed at [`EcFzauTsYV41yUFxnJtx17fz4awZnGRaQKtZWiBF69VF`](https://explorer.solana.com/address/EcFzauTsYV41yUFxnJtx17fz4awZnGRaQKtZWiBF69VF?cluster=devnet), surfaced on the app's `#/lossless` route. The permanent static app is [published here](https://robust-diner-7jvk.here.now/). It uses devnet USDC test tokens and caller-supplied deterministic test randomness; it does not change the SOL raffle program or deployment. Scope: [docs/lossless-v1.md](docs/lossless-v1.md). Seeded campaign IDs, authorities, deadlines and transaction receipts: [docs/devnet-campaigns.md](docs/devnet-campaigns.md).
 
 | Doc | What |
 |---|---|
 | [docs/requirements.md](docs/requirements.md) | 88 atomic requirements, decisions traceability, out-of-scope list |
 | [docs/design.md](docs/design.md) | Account map, PDA seeds, instructions, state machine, CPI plan, threat model, swappable winner unit |
 | [docs/diagrams/](docs/diagrams/) | D1-D9 architecture diagrams (SVG) |
+| [docs/devnet-campaigns.md](docs/devnet-campaigns.md) | Current devnet campaigns, replay-safe seeding and transaction receipts |
 
 ## Devnet SOL faucet (devnet only)
 

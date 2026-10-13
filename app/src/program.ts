@@ -189,10 +189,11 @@ export function decodeCampaign(bytes: Uint8Array): Campaign {
   };
 }
 
-function decodeTicket(bytes: Uint8Array, campaignId: number, signature = ""): Ticket {
+export function decodeTicket(bytes: Uint8Array, campaignId: number, signature = ""): Ticket {
   const data = new Uint8Array(bytes);
   if (!same(data, DISCRIMINATORS.ticket)) throw new ProgramError("BadAccount");
   const r = new Reader(data);
+  if (r.key() !== campaignPda(campaignId).toBase58()) throw new ProgramError("BadAccount");
   return {
     campaign: campaignId,
     index: r.u32(),

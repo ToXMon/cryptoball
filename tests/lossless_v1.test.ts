@@ -203,6 +203,7 @@ describe("lossless-v1 accounting (LiteSVM + devnet SPL Token binary)", () => {
     w.fails([await w.depositIx(id, alice, w.wrongAuthority, 1_000_000n)], [alice], err("WrongTokenAccount"));
     w.fails([await w.mockAccrueIx(id, w.attacker)], [w.attacker], err("Unauthorized"));
     w.ok([await w.depositIx(id, alice)], [alice]);
+    w.fails([await w.depositIx(id, alice)], [alice], "already in use"); // one position per wallet/campaign; replay cannot mint shares twice
     w.ok([await w.depositIx(id, bob)], [bob]);
 
     // A direct SPL donation increases raw vault tokens but not mock value, shares, or harvestable yield.
@@ -252,6 +253,17 @@ describe("lossless-v1 accounting (LiteSVM + devnet SPL Token binary)", () => {
     expect(w.acct(campaign.address).principalLiability.toString()).to.equal("0");
     w.fails([await w.withdrawIx(id, alice)], [alice], err("AlreadyWithdrawn"));
     expect(w.balance(principal)).to.equal(9_000_000n); // donation is still inert, not claimed as principal/yield
+  });
+
+  it("rejects replayed config creation, insufficient funds, and deposits after close", async () => {
+    const w = new LosslessWorld(); await w.init();
+    w.fails([await w.initIx()], [w.authority], "already in use");
+    const id = 10n; const campaign = await w.campaign(id);
+    w.fails([await w.depositIx(id, w.users[0], w.userTokens[0], 5_000_001n)], [w.users[0]], "insufficient funds");
+    expect(w.acct(campaign.address).principalLiability.toString()).to.equal("0");
+    w.setTime(campaign.closeTs, w.slot + 1n);
+    w.fails([await w.depositIx(id, w.users[0])], [w.users[0]], err("Closed"));
+    expect(w.acct(campaign.address).positionCount).to.equal(0);
   });
 
   it("caps one-transaction settlement at 24 positions", async () => {

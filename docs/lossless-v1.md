@@ -9,14 +9,14 @@ The prototype uses the six-decimal devnet USDC test asset and an admin-funded mo
 
 ## App
 
-[Open the permanent static app](https://robust-diner-7jvk.here.now/) and choose **USDC prototype** (or `#/lossless`). This route is read-only account discovery; it does not offer deposit, admin, or settlement transactions. No config or demo campaign account is seeded, so the list stays empty until an admin initializes and creates one.
+[Open the permanent static app](https://robust-diner-7jvk.here.now/) and choose **USDC prototype** (or `#/lossless`). The route supports wallet deposits and withdrawals, admin-only mock accrual/loss, and deterministic demo commit/reveal/settlement. The pinned devnet campaign and all campaign/config receipts are in [the campaign runbook](devnet-campaigns.md).
 
 ## Deployment
 
 - Program: [devnet explorer](https://explorer.solana.com/address/EcFzauTsYV41yUFxnJtx17fz4awZnGRaQKtZWiBF69VF?cluster=devnet)
 - Deployment transaction: [25RNSh6LYUCt5UccauThLZ32vKeF1pjZWLvSBXA4Fh2CcuivuiP3K3vKGVHdD6jDjGtwhjZRyCMo8nFfxw88JdoD](https://explorer.solana.com/tx/25RNSh6LYUCt5UccauThLZ32vKeF1pjZWLvSBXA4Fh2CcuivuiP3K3vKGVHdD6jDjGtwhjZRyCMo8nFfxw88JdoD?cluster=devnet)
 
-The existing SOL raffle program was not redeployed. No config or demo campaign account is seeded.
+The existing SOL raffle program and tape identity were not changed. The mock adapter is test-token-funded only; the prototype does not integrate a real yield venue.
 
 ## Accounting
 
