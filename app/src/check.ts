@@ -334,6 +334,7 @@ const losslessBytes = new Uint8Array(220);
 losslessBytes.set(LOSSLESS_CAMPAIGN_DISC);
 const lv = new DataView(losslessBytes.buffer);
 lv.setBigUint64(8, 9n, true);
+losslessBytes.set(LOSSLESS_USDC_MINT.toBytes(), 16);
 lv.setBigInt64(152, 1_790_000_000n, true);
 losslessBytes[160] = 1;
 lv.setBigUint64(161, 2_000_000n, true);
