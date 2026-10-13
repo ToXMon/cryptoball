@@ -11,6 +11,13 @@ The prototype uses the six-decimal devnet USDC test asset and an admin-funded mo
 
 [Open the permanent static app](https://robust-diner-7jvk.here.now/) and choose **USDC prototype** (or `#/lossless`). This route is read-only account discovery; it does not offer deposit, admin, or settlement transactions. No config or demo campaign account is seeded, so the list stays empty until an admin initializes and creates one.
 
+## Deployment
+
+- Program: [devnet explorer](https://explorer.solana.com/address/EcFzauTsYV41yUFxnJtx17fz4awZnGRaQKtZWiBF69VF?cluster=devnet)
+- Deployment transaction: [25RNSh6LYUCt5UccauThLZ32vKeF1pjZWLvSBXA4Fh2CcuivuiP3K3vKGVHdD6jDjGtwhjZRyCMo8nFfxw88JdoD](https://explorer.solana.com/tx/25RNSh6LYUCt5UccauThLZ32vKeF1pjZWLvSBXA4Fh2CcuivuiP3K3vKGVHdD6jDjGtwhjZRyCMo8nFfxw88JdoD?cluster=devnet)
+
+The existing SOL raffle program was not redeployed. No config or demo campaign account is seeded.
+
 ## Accounting
 
 - Deposits transfer test-USDC into a principal-only vault and create one position PDA per wallet/campaign. Shares equal deposited base units; new deposits require tracked yield to be harvested first so later positions cannot capture earlier yield. A campaign supports at most 24 positions so its one-transaction snapshot settlement fits Solana's packet limit. Larger campaigns need batched settlement. A deposit is eligible starting one slot later, and commit waits until the last deposit's slot has passed.
