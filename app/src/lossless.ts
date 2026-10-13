@@ -1,6 +1,6 @@
 import { Connection, PublicKey, SystemProgram, Transaction, TransactionInstruction } from "@solana/web3.js";
 import { sha256 } from "@noble/hashes/sha2.js";
-import { base58, describeError, DEVNET_RPC, type WalletSigner } from "./program.ts";
+import { base58, DEVNET_RPC, type WalletSigner } from "./program.ts";
 
 export const LOSSLESS_PROGRAM_ID = new PublicKey("EcFzauTsYV41yUFxnJtx17fz4awZnGRaQKtZWiBF69VF");
 export const LOSSLESS_USDC_MINT = new PublicKey("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU");
@@ -55,9 +55,7 @@ export function describeLosslessError(e: unknown): string {
   const decimal = message.match(/["']?Custom["']?\s*:\s*(\d+)/)?.[1];
   const code = hex == null ? decimal == null ? undefined : Number(decimal) : parseInt(hex, 16);
   const copy = code == null ? undefined : LOSSLESS_ERROR_COPY[code - 6000];
-  if (copy) return copy;
-  if (code != null || /InstructionError|failed after confirmation/i.test(message)) return LOSSLESS_TRANSACTION_FAILED;
-  return describeError(e);
+  return copy ?? LOSSLESS_TRANSACTION_FAILED;
 }
 
 export function assertConfirmed(signature: string, result: { value: { err: unknown } }) {
@@ -332,6 +330,10 @@ export function deterministicWinner(positions: LosslessPosition[], seed: number[
   return winner;
 }
 
+export function settlementBatches(setup: TransactionInstruction[], settlement: TransactionInstruction[]) {
+  return setup.length ? [setup, settlement] : [settlement];
+}
+
 export async function settleLossless(c: LosslessCampaign, wallet?: WalletSigner) {
   if (!wallet?.publicKey || !c.mockRandomness) throw new Error("The committed deterministic seed is missing");
   const positions = await fetchLosslessPositions(c.address);
@@ -340,12 +342,13 @@ export async function settleLossless(c: LosslessCampaign, wallet?: WalletSigner)
   const setup: TransactionInstruction[] = [];
   const winnerToken = await ensureAta(new PublicKey(winner), wallet.publicKey, setup);
   if (setup.length) await send(setup, wallet);
-  const ixs: TransactionInstruction[] = [];
-  ixs.push(ix("settle_draw", [
+  const ixs: TransactionInstruction[] = [ix("settle_draw", [
     account(wallet.publicKey, false, true), fixedCampaign(c.address), account(new PublicKey(c.prizeVault), true), account(winnerToken, true), tokenProgram(),
     ...positions.map((p) => account(new PublicKey(p.address))),
-  ]));
-  return send(ixs, wallet);
+  ])];
+  let signature = "";
+  for (const batch of settlementBatches(setup, ixs)) signature = await send(batch, wallet);
+  return signature;
 }
 
 export async function cancelLossless(c: LosslessCampaign, wallet?: WalletSigner) {

@@ -2,12 +2,12 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { quickPick, parts, FUNDING_COPY, CLAIM_CAPS, FINISHED_COPY, finishedCopy, sol, fundingCopy } from "./lib.ts";
-import { payout, ERROR_COPY, buyTicket, ProgramError, PROGRAM_ID, describeError, fundingNeeded, isFundingError, FAUCET_URL, FUNDING_ERROR, DEVNET_RPC, funding, payGate, CLAIM_LIFETIME_CAP, CLAIM_MAX, CLAIM_POOL_CAP, CAMPAIGN_ACCOUNT_DISC, DISCOVERY_CAP, claimGate, campaignAddress, decodeCampaign, decodeTicket, faucetRemaining, iWon, isSettleLog, outcome } from "./program.ts";
+import { assertConfirmed as assertProgramConfirmed, payout, ERROR_COPY, buyTicket, ProgramError, PROGRAM_ID, describeError, fundingNeeded, isFundingError, FAUCET_URL, FUNDING_ERROR, DEVNET_RPC, funding, payGate, CLAIM_LIFETIME_CAP, CLAIM_MAX, CLAIM_POOL_CAP, CAMPAIGN_ACCOUNT_DISC, DISCOVERY_CAP, claimGate, campaignAddress, decodeCampaign, decodeTicket, faucetRemaining, iWon, isSettleLog, outcome } from "./program.ts";
 import { readFileSync } from "node:fs";
-import { PublicKey } from "@solana/web3.js";
+import { PublicKey, TransactionInstruction } from "@solana/web3.js";
 import { createBalanceRead, type BalanceState } from "./balance.ts";
 import { accountFromPrfOutput } from "./passkeyWallet.ts";
-import { assertConfirmed as assertLosslessConfirmed, decodeLosslessCampaign, decodeLosslessConfig, decodeLosslessPosition, describeLosslessError, deterministicWinner, estimatedOdds, LOSSLESS_CAMPAIGN_DISC, LOSSLESS_CONFIG_DISC, LOSSLESS_POSITION_DISC, LOSSLESS_PROGRAM_ID, LOSSLESS_USDC_MINT, parseUsdc, type LosslessPosition } from "./lossless.ts";
+import { assertConfirmed as assertLosslessConfirmed, decodeLosslessCampaign, decodeLosslessConfig, decodeLosslessPosition, describeLosslessError, deterministicWinner, estimatedOdds, LOSSLESS_CAMPAIGN_DISC, LOSSLESS_CONFIG_DISC, LOSSLESS_POSITION_DISC, LOSSLESS_PROGRAM_ID, LOSSLESS_USDC_MINT, parseUsdc, settlementBatches, type LosslessPosition } from "./lossless.ts";
 
 // The invariant is "every CryptoballError variant has English copy". Assert it against the real
 // variant list in errors.rs rather than a hardcoded count: a hardcoded number passes happily while
@@ -36,6 +36,8 @@ for (let i = 0; i < 500; i++) {
 }
 assert.deepEqual(parts(90061), { d: 1, h: 1, m: 1, s: 1 });
 assert.equal(PROGRAM_ID.toBase58(), "GtdcPM3LTX8G8pB1bVW1jWfuxTj3kZmD3axt4Q7whBpC"); // devnet program, README receipts
+assert.doesNotThrow(() => assertProgramConfirmed("sig", { value: { err: null } }));
+assert.throws(() => assertProgramConfirmed("sig", { value: { err: "InstructionError" } }), /failed after confirmation/);
 await assert.rejects(buyTicket("w", 1, [5, 5, 6, 7, 8], 1), (e) => e instanceof ProgramError && e.code === "InvalidNumbers");
 
 // Funding helper: what a checkout needs must cover what it really costs, at any cart size. Devnet rent-exempt minimum
@@ -365,8 +367,13 @@ assert.equal(describeLosslessError(new Error('confirmed: {"InstructionError":[0,
 assert.equal(describeLosslessError(new Error('confirmed: {"InstructionError":[0,"InvalidAccountData"]}')), "The Lossless transaction failed. Check the campaign state and try again.");
 assert.notEqual(describeLosslessError(new Error("custom program error: 0x1775")), ERROR_COPY.NotClosed);
 assert.doesNotMatch(describeLosslessError(new Error('confirmed: {"InstructionError":[0,"InvalidAccountData"]}')), /InvalidAccountData|InstructionError/);
+assert.doesNotMatch(describeLosslessError(new Error("Transaction simulation failed: invalid account data for instruction")), /invalid account data/i);
 assert.doesNotThrow(() => assertLosslessConfirmed("sig", { value: { err: null } }));
 assert.throws(() => assertLosslessConfirmed("sig", { value: { err: "InstructionError" } }), /failed after confirmation/);
+const setupIx = new TransactionInstruction({ programId: LOSSLESS_PROGRAM_ID });
+const settlementIx = new TransactionInstruction({ programId: LOSSLESS_PROGRAM_ID });
+assert.equal(settlementBatches([], [settlementIx]).length, 1);
+assert.deepEqual(settlementBatches([setupIx], [settlementIx]), [[setupIx], [settlementIx]]);
 assert.throws(() => decodeLosslessCampaign("bad", new Uint8Array(220)), /Campaign account/);
 const positionBytes = new Uint8Array(90); positionBytes.set(LOSSLESS_POSITION_DISC); positionBytes.set(adminKey.toBytes(), 8); positionBytes.set(adminKey.toBytes(), 40);
 new DataView(positionBytes.buffer).setBigUint64(72, 1_000_000n, true); new DataView(positionBytes.buffer).setBigUint64(80, 23n, true);

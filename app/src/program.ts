@@ -326,6 +326,10 @@ export class ProgramError extends Error {
   constructor(code: CryptoballError) { super(ERROR_COPY[code]); this.code = code; }
 }
 
+export function assertConfirmed(signature: string, result: { value: { err: unknown } }) {
+  if (result.value.err != null) throw new Error(`Transaction ${signature} failed after confirmation: ${JSON.stringify(result.value.err)}`);
+}
+
 export function describeError(e: unknown): string {
   if (e instanceof ProgramError) return e.message;
   // An unfunded wallet must never reach the player as raw RPC text.
@@ -440,7 +444,8 @@ export async function buyTicket(buyer: string, campaignId: number, numbers: numb
     data,
   }));
   const signature = await send(tx, wallet, [asset]);
-  await connection.confirmTransaction(signature, "confirmed");
+  const confirmation = await connection.confirmTransaction(signature, "confirmed");
+  assertConfirmed(signature, confirmation);
   return { campaign: campaignId, index: c.ticketCount, buyer, numbers: [...numbers], bonus, asset: asset.publicKey.toBase58(), status: "Active", signature };
 }
 
@@ -485,6 +490,7 @@ export async function claimSol(amount: bigint, wallet?: WalletSigner): Promise<s
     data: new Uint8Array([...DISCRIMINATORS.claimSol, ...u64le(amount)]) as Buffer,
   }));
   const signature = await send(tx, wallet);
-  await connection.confirmTransaction(signature, "confirmed");
+  const confirmation = await connection.confirmTransaction(signature, "confirmed");
+  assertConfirmed(signature, confirmation);
   return signature;
 }

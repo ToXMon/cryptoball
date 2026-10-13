@@ -12,12 +12,13 @@ import {
 
 const SEED = Array.from({ length: 32 }, (_, i) => i + 1);
 const percent = (n: bigint, d: bigint) => d === 0n ? "0%" : `${(Number(n * 1_000_000n / d) / 10_000).toFixed(2)}%`;
-const stateCopy = (c: LosslessCampaign) => c.shortfall
-  ? "Shortfall · new deposits, harvest payouts, and draw commits stop. Withdrawals remain available."
-  : c.state === "Open" ? "Open · deposit shares enter the draw after one slot; sales end at the listed deadline."
-    : c.state === "DrawCommitted" ? "Draw committed · share weights and prize are fixed; the deterministic test seed is on-chain."
-      : c.state === "Settled" ? `Revealed · ${c.winner ? `winner ${short(c.winner)}` : "winner recorded on-chain"}; prize paid from the separate prize vault.`
-        : "Cancelled · no winner; any recorded prize returned to mock value and positions may withdraw.";
+const stateCopy = (c: LosslessCampaign) => c.state === "Cancelled"
+  ? c.shortfall ? "Cancelled · no winner; the round ended in shortfall and positions may withdraw remaining mock value."
+    : "Cancelled · no winner; any recorded prize returned to mock value and positions may withdraw."
+  : c.shortfall ? "Shortfall · new deposits, harvest payouts, and draw commits stop. Withdrawals remain available."
+    : c.state === "Open" ? "Open · deposit shares enter the draw after one slot; sales end at the listed deadline."
+      : c.state === "DrawCommitted" ? "Draw committed · share weights and prize are fixed; the deterministic test seed is on-chain."
+        : `Revealed · ${c.winner ? `winner ${short(c.winner)}` : "winner recorded on-chain"}; prize paid from the separate prize vault.`;
 
 function LosslessCampaignCard({ c, admin, slot, revision, refresh }: { c: LosslessCampaign; admin?: string; slot: bigint; revision: number; refresh: () => void }) {
   const { publicKey, sendTransaction } = useWallet();
@@ -48,7 +49,7 @@ function LosslessCampaignCard({ c, admin, slot, revision, refresh }: { c: Lossle
   return (
     <article className="cb-card" data-campaign={c.address}>
       <p className="cb-eyebrow">USDC draw #{c.id.toString()} · mock adapter</p>
-      <h3>{c.shortfall ? "Shortfall" : c.state === "DrawCommitted" ? "Awaiting reveal" : c.state}</h3>
+      <h3>{c.state === "Cancelled" ? "Cancelled" : c.shortfall ? "Shortfall" : c.state === "DrawCommitted" ? "Awaiting reveal" : c.state}</h3>
       <p className="cb-sub">{stateCopy(c)}</p>
       {c.state === "Open" && !closed && <Countdown to={c.closeTs} label="Deposit window closes in" />}
       <dl className="cb-sum">

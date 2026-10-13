@@ -25,7 +25,7 @@ node --experimental-strip-types ops/demo-sol-entry.mjs  # inspect the fixed SOL 
 node --experimental-strip-types ops/demo-sol-entry.mjs --send
 ```
 
-A matching campaign/config is a no-op on rerun. A reused ID with different parameters, an unexpected authority, a non-devnet RPC, or a changed Lossless mint is refused; there is no overwrite/reset path. The fixed SOL demo entry also refuses if ticket 0 belongs to another wallet or differs. For this seed it reads back the existing matching ticket rather than submitting a duplicate.
+A matching campaign/config is a no-op on rerun. A reused ID with different parameters, an unexpected authority, a non-devnet RPC, or a changed Lossless mint is refused; there is no overwrite/reset path. The fixed SOL demo entry's `--send` path refuses if ticket 0 belongs to another wallet or differs; the read-only path reports an existing owner as unverified because it does not load a signer. For this seed it reads back the existing matching ticket rather than submitting a duplicate.
 
 The raffle program pays the winning ticket's buyer automatically inside `settle_draw`; it has no separate prize-claim instruction. `claim_sol` is the capped devnet faucet, not a prize claim. Raffle draw randomness remains the deployed Switchboard commit/reveal path; the repository's LiteSVM lifecycle test uses fixed reveal bytes for reproducible settlement. Do not fake a devnet Switchboard reveal or upgrade the SOL program to add one.
 

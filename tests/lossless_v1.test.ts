@@ -277,7 +277,9 @@ describe("lossless-v1 accounting (LiteSVM + devnet SPL Token binary)", () => {
 
   it("settles a full 24-position campaign when the winner ATA already exists", async () => {
     const w = new LosslessWorld(); await w.init();
-    const id = 6n; const campaign = await w.campaign(id);
+    const id = 6n; const closeTs = BigInt(w.now) + 10n;
+    w.ok([await w.createIx(id, closeTs, 24_000_000n, 24)], [w.admin]);
+    const campaign = { address: campaignPda(id), closeTs };
     for (const user of w.users) w.ok([await w.depositIx(id, user)], [user]);
     w.setTime(campaign.closeTs, w.slot + 1n);
     w.ok([await w.commitIx(id)], [w.payer]);
