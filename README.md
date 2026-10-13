@@ -11,10 +11,14 @@ The program is **live on devnet** (receipts below) and the web app talks to it f
 `settle_draw` reads the value the oracle persisted in the randomness account, so settlement is not bound to the exact reveal slot; it must still land inside the same window `cancel_campaign` uses (see the receipts' operational notes). Build order is `docs/design.md` section 17.
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 Lossless V1 is a separate devnet-only mock-adapter prototype deployed at [`EcFzauTsYV41yUFxnJtx17fz4awZnGRaQKtZWiBF69VF`](https://explorer.solana.com/address/EcFzauTsYV41yUFxnJtx17fz4awZnGRaQKtZWiBF69VF?cluster=devnet), surfaced on the app's `#/lossless` route. The permanent static app is [published here](https://robust-diner-7jvk.here.now/). It uses devnet USDC test tokens and caller-supplied deterministic test randomness; it does not change the SOL raffle program or deployment. Scope: [docs/lossless-v1.md](docs/lossless-v1.md). Seeded campaign IDs, authorities, deadlines and transaction receipts: [docs/devnet-campaigns.md](docs/devnet-campaigns.md).
 =======
 Lossless V1 is a separate devnet-only mock-adapter prototype at `EcFzauTsYV41yUFxnJtx17fz4awZnGRaQKtZWiBF69VF`, surfaced on the app's `#/lossless` route. The permanent static app is [published here](https://robust-diner-7jvk.here.now/). It uses devnet USDC test tokens and caller-supplied test randomness; it does not change the SOL raffle program or deployment. Scope and limitations: [docs/lossless-v1.md](docs/lossless-v1.md).
 >>>>>>> 6858b3b (feat: add lossless v1 devnet mock prototype)
+=======
+Lossless V1 is a separate devnet-only mock-adapter prototype deployed at [`EcFzauTsYV41yUFxnJtx17fz4awZnGRaQKtZWiBF69VF`](https://explorer.solana.com/address/EcFzauTsYV41yUFxnJtx17fz4awZnGRaQKtZWiBF69VF?cluster=devnet), surfaced on the app's `#/lossless` route. The permanent static app is [published here](https://robust-diner-7jvk.here.now/). It uses devnet USDC test tokens and caller-supplied test randomness; it does not change the SOL raffle program or deployment. Scope and deployment receipt: [docs/lossless-v1.md](docs/lossless-v1.md).
+>>>>>>> 9e191eb (docs: record lossless v1 devnet deployment)
 
 | Doc | What |
 |---|---|
