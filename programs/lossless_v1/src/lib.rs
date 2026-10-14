@@ -511,11 +511,16 @@ pub mod lossless_v1 {
             .ok_or(E::Overflow)?;
         c.share_supply = c.share_supply.checked_sub(shares).ok_or(E::Overflow)?;
         c.position_count = c.position_count.checked_sub(1).ok_or(E::Overflow)?;
-        c.shortfall = if open_shortfall {
-            c.principal_liability > 0 || c.mock_value > 0 || c.prize_balance > 0
+        if open_shortfall {
+            if c.principal_liability == 0 && c.mock_value == 0 && c.prize_balance == 0 {
+                c.state = CampaignState::Cancelled;
+                c.shortfall = false;
+            } else {
+                c.shortfall = true;
+            }
         } else {
-            c.mock_value < c.principal_liability
-        };
+            c.shortfall = c.mock_value < c.principal_liability;
+        }
         p.shares = 0;
         p.withdrawn = true;
         emit!(Withdrawn {

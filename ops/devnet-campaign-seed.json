@@ -2,11 +2,11 @@
   "cluster": "devnet",
   "sol": {
     "programId": "GtdcPM3LTX8G8pB1bVW1jWfuxTj3kZmD3axt4Q7whBpC",
-    "id": "20261013",
+    "id": "20261114",
     "priceLamports": "10000000",
     "feeBps": 1000,
     "maxTickets": 1000,
-    "closeAt": "2026-10-14T00:00:00Z"
+    "closeAt": "2026-11-14T00:00:00Z"
   },
   "lossless": {
     "programId": "EcFzauTsYV41yUFxnJtx17fz4awZnGRaQKtZWiBF69VF",

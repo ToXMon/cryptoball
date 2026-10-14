@@ -303,7 +303,7 @@ describe("lossless-v1 accounting (LiteSVM + devnet SPL Token binary)", () => {
     expect(state.prizeBalance.toString()).to.equal("975000");
   });
 
-  it("pauses draw/harvest on shortfall, cancels after close, and pays withdrawals pro rata", async () => {
+  it("pauses draw/harvest on shortfall and pays withdrawals pro rata", async () => {
     const w = new LosslessWorld(); await w.init();
     const id = 2n; const campaign = await w.campaign(id);
     const user = w.users[0]; const token = w.userTokens[0];
@@ -317,7 +317,6 @@ describe("lossless-v1 accounting (LiteSVM + devnet SPL Token binary)", () => {
     w.ok([await w.withdrawIx(id, user)], [user]); // shortfall exits remain available while no draw is committed
     expect(w.balance(token)).to.equal(4_600_000n);
     expect(w.acct(campaign.address).principalLiability.toString()).to.equal("0");
-    w.ok([await w.cancelIx(id)], [w.payer]);
   });
 
   it("withdraws open shortfall from principal and prize ledgers", async () => {
@@ -363,6 +362,7 @@ describe("lossless-v1 accounting (LiteSVM + devnet SPL Token binary)", () => {
     const state = w.acct(campaign.address);
     expect([state.mockValue.toString(), state.prizeBalance.toString(), state.principalLiability.toString(), state.positionCount]).to.deep.equal(["0", "0", "0", 0]);
     expect(w.balance(principal)).to.equal(9_000_000n);
+    w.fails([await w.depositIx(id, w.users[3], w.userTokens[3], 1n)], [w.users[3]], err("WrongState"));
   });
 
   it("clears shortfall only when mock assets restore full principal and then permits a draw", async () => {
