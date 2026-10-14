@@ -378,13 +378,17 @@ const configBytes = new Uint8Array(140); configBytes.set(LOSSLESS_CONFIG_DISC); 
 new DataView(configBytes.buffer).setUint16(136, 250, true); configBytes[138] = 1;
 assert.deepEqual(decodeLosslessConfig(configBytes), { admin: adminKey.toBase58(), mint: LOSSLESS_USDC_MINT.toBase58(), treasury: adminKey.toBase58(), treasuryToken: adminKey.toBase58(), feeBps: 250, paused: true });
 assert.equal(parseUsdc("1.000001"), 1_000_001n); assert.equal(parseUsdc("0.000001"), 1n);
-assert.throws(() => parseUsdc("1.0000001"), /six decimals/); assert.throws(() => parseUsdc("0"), /positive/);
+for (const [amount, message] of [["0", "USDC amount must be positive"], ["1.0000001", "Enter a positive USDC amount with up to six decimals"]] as const) {
+  let error: unknown;
+  try { parseUsdc(amount); } catch (e) { error = e; }
+  assert.equal(describeLosslessError(error), message);
+}
 const alice: LosslessPosition = { address: "a", campaign: "c", owner: "alice", shares: 1n, eligibleAfterSlot: 23n, withdrawn: false };
 const bob: LosslessPosition = { ...alice, owner: "bob", shares: 3n };
 assert.deepEqual(estimatedOdds(alice, losslessCampaign, 20n), { eligible: false, numerator: 0n, denominator: 2_000_000n });
 assert.deepEqual(estimatedOdds(alice, { ...losslessCampaign, state: "Settled" }, 99n), { eligible: false, numerator: 0n, denominator: 0n });
 assert.deepEqual(estimatedOdds(alice, { ...losslessCampaign, state: "Cancelled" }, 99n), { eligible: false, numerator: 0n, denominator: 0n });
-const settlementIx = new TransactionInstruction({ programId: LOSSLESS_PROGRAM_ID });
+const settlementIx = new TransactionInstruction({ programId: LOSSLESS_PROGRAM_ID, keys: [] });
 const missingSetup: TransactionInstruction[] = [];
 const missingAta = await ensureAta(adminKey, adminKey, missingSetup, async () => null);
 assert.equal(missingAta.toBase58(), associatedTokenAddress(adminKey).toBase58());
@@ -397,9 +401,9 @@ const sentBatches: TransactionInstruction[][] = [];
 const stubSend = async (batch: TransactionInstruction[]) => { sentBatches.push(batch); return String(sentBatches.length); };
 await settleWithAtaSetup(missingSetup, [settlementIx], stubSend);
 assert.deepEqual(sentBatches, [missingSetup, [settlementIx]]);
-const ataData = Buffer.alloc(165); LOSSLESS_USDC_MINT.toBuffer().copy(ataData, 0); adminKey.toBuffer().copy(ataData, 32); ataData[108] = 1;
+const ataData = new Uint8Array(165); ataData.set(LOSSLESS_USDC_MINT.toBytes(), 0); ataData.set(adminKey.toBytes(), 32); ataData[108] = 1;
 const existingSetup: TransactionInstruction[] = [];
-await ensureAta(adminKey, adminKey, existingSetup, async () => ({ owner: TOKEN_PROGRAM_ID, data: ataData }));
+await ensureAta(adminKey, adminKey, existingSetup, async () => ({ owner: TOKEN_PROGRAM_ID, data: Buffer.from(ataData), executable: false, lamports: 1, rentEpoch: 0 }));
 assert.equal(existingSetup.length, 0);
 sentBatches.length = 0;
 await settleWithAtaSetup(existingSetup, [settlementIx], stubSend);

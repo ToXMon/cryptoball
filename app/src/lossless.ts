@@ -49,7 +49,10 @@ export const LOSSLESS_ERROR_COPY = [
   "The Lossless transaction overflowed.",
 ] as const;
 
+class LosslessInputError extends Error {}
+
 export function describeLosslessError(e: unknown): string {
+  if (e instanceof LosslessInputError) return e.message;
   const message = e instanceof Error ? e.message : String(e);
   const hex = message.match(/custom program error: 0x([0-9a-f]+)/i)?.[1];
   const decimal = message.match(/["']?Custom["']?\s*:\s*(\d+)/)?.[1];
@@ -207,11 +210,11 @@ export const associatedTokenAddress = (owner: PublicKey, mint = LOSSLESS_USDC_MI
   PublicKey.findProgramAddressSync([owner.toBytes(), TOKEN_PROGRAM_ID.toBytes(), mint.toBytes()], ASSOCIATED_TOKEN_PROGRAM_ID)[0];
 export const usdc = (amount: bigint) => `${amount / 1_000_000n}.${(amount % 1_000_000n).toString().padStart(6, "0")} USDC`;
 export const parseUsdc = (amount: string) => {
-  if (!/^\d+(?:\.\d{1,6})?$/.test(amount)) throw new Error("Enter a positive USDC amount with up to six decimals");
+  if (!/^\d+(?:\.\d{1,6})?$/.test(amount)) throw new LosslessInputError("Enter a positive USDC amount with up to six decimals");
   const [whole, fraction = ""] = amount.split(".");
   const value = BigInt(whole) * 1_000_000n + BigInt(fraction.padEnd(6, "0"));
-  if (value <= 0n) throw new Error("USDC amount must be positive");
-  if (value > (1n << 64n) - 1n) throw new Error("USDC amount is outside the supported range");
+  if (value <= 0n) throw new LosslessInputError("USDC amount must be positive");
+  if (value > (1n << 64n) - 1n) throw new LosslessInputError("USDC amount is outside the supported range");
   return value;
 };
 
