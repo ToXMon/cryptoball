@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import { PublicKey, TransactionInstruction } from "@solana/web3.js";
 import { createBalanceRead, type BalanceState } from "./balance.ts";
 import { accountFromPrfOutput } from "./passkeyWallet.ts";
-import { assertConfirmed as assertLosslessConfirmed, decodeLosslessCampaign, decodeLosslessConfig, decodeLosslessPosition, describeLosslessError, deterministicWinner, estimatedOdds, LOSSLESS_CAMPAIGN_DISC, LOSSLESS_CONFIG_DISC, LOSSLESS_POSITION_DISC, LOSSLESS_PROGRAM_ID, LOSSLESS_USDC_MINT, parseUsdc, settlementBatches, type LosslessPosition } from "./lossless.ts";
+import { assertConfirmed as assertLosslessConfirmed, decodeLosslessCampaign, decodeLosslessConfig, decodeLosslessPosition, describeLosslessError, deterministicWinner, estimatedOdds, LOSSLESS_CAMPAIGN_DISC, LOSSLESS_CONFIG_DISC, LOSSLESS_POSITION_DISC, LOSSLESS_PROGRAM_ID, LOSSLESS_USDC_MINT, parseUsdc, settleWithAtaSetup, type LosslessPosition } from "./lossless.ts";
 
 // The invariant is "every CryptoballError variant has English copy". Assert it against the real
 // variant list in errors.rs rather than a hardcoded count: a hardcoded number passes happily while
@@ -386,8 +386,13 @@ assert.deepEqual(estimatedOdds(alice, { ...losslessCampaign, state: "Settled" },
 assert.deepEqual(estimatedOdds(alice, { ...losslessCampaign, state: "Cancelled" }, 99n), { eligible: false, numerator: 0n, denominator: 0n });
 const setupIx = new TransactionInstruction({ programId: LOSSLESS_PROGRAM_ID });
 const settlementIx = new TransactionInstruction({ programId: LOSSLESS_PROGRAM_ID });
-assert.equal(settlementBatches([], [settlementIx]).length, 1);
-assert.deepEqual(settlementBatches([setupIx], [settlementIx]), [[setupIx], [settlementIx]]);
+const sentBatches: TransactionInstruction[][] = [];
+const stubSend = async (batch: TransactionInstruction[]) => { sentBatches.push(batch); return String(sentBatches.length); };
+await settleWithAtaSetup([setupIx], [settlementIx], stubSend);
+assert.deepEqual(sentBatches, [[setupIx], [settlementIx]]);
+sentBatches.length = 0;
+await settleWithAtaSetup([], [settlementIx], stubSend);
+assert.deepEqual(sentBatches, [[settlementIx]]);
 assert.equal(deterministicWinner([alice, bob], new Array(32).fill(0), 4n), "alice");
 assert.equal(deterministicWinner([alice, bob], [2, ...new Array(31).fill(0)], 4n), "bob");
 assert.throws(() => deterministicWinner([alice, bob], new Array(32).fill(255), 3n), /exhausted/);

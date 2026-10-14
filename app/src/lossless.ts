@@ -331,8 +331,13 @@ export function deterministicWinner(positions: LosslessPosition[], seed: number[
   return winner;
 }
 
-export function settlementBatches(setup: TransactionInstruction[], settlement: TransactionInstruction[]) {
-  return setup.length ? [setup, settlement] : [settlement];
+export async function settleWithAtaSetup(
+  setup: TransactionInstruction[],
+  settlement: TransactionInstruction[],
+  sendBatch: (ixs: TransactionInstruction[]) => Promise<string>,
+) {
+  if (setup.length) await sendBatch(setup);
+  return sendBatch(settlement);
 }
 
 export async function settleLossless(c: LosslessCampaign, wallet?: WalletSigner) {
@@ -346,9 +351,7 @@ export async function settleLossless(c: LosslessCampaign, wallet?: WalletSigner)
     account(wallet.publicKey, false, true), fixedCampaign(c.address), account(new PublicKey(c.prizeVault), true), account(winnerToken, true), tokenProgram(),
     ...positions.map((p) => account(new PublicKey(p.address))),
   ])];
-  let signature = "";
-  for (const batch of settlementBatches(setup, ixs)) signature = await send(batch, wallet);
-  return signature;
+  return settleWithAtaSetup(setup, ixs, (batch) => send(batch, wallet));
 }
 
 export async function cancelLossless(c: LosslessCampaign, wallet?: WalletSigner) {
