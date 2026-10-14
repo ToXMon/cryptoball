@@ -216,6 +216,7 @@ export const parseUsdc = (amount: string) => {
 };
 
 export function estimatedOdds(position: LosslessPosition | undefined, campaign: LosslessCampaign, currentSlot: bigint) {
+  if (campaign.state === "Settled" || campaign.state === "Cancelled") return { eligible: false, numerator: 0n, denominator: 0n };
   const supply = campaign.state === "DrawCommitted" ? campaign.snapshotShares : campaign.shares;
   const eligible = position && !position.withdrawn && position.eligibleAfterSlot <= (campaign.state === "DrawCommitted" ? campaign.snapshotSlot : currentSlot);
   return { eligible: Boolean(eligible), numerator: eligible ? position!.shares : 0n, denominator: supply };
@@ -330,10 +331,6 @@ export function deterministicWinner(positions: LosslessPosition[], seed: number[
   return winner;
 }
 
-export function settlementBatches(setup: TransactionInstruction[], settlement: TransactionInstruction[]) {
-  return setup.length ? [setup, settlement] : [settlement];
-}
-
 export async function settleLossless(c: LosslessCampaign, wallet?: WalletSigner) {
   if (!wallet?.publicKey || !c.mockRandomness) throw new Error("The committed deterministic seed is missing");
   const positions = await fetchLosslessPositions(c.address);
@@ -342,13 +339,11 @@ export async function settleLossless(c: LosslessCampaign, wallet?: WalletSigner)
   const setup: TransactionInstruction[] = [];
   const winnerToken = await ensureAta(new PublicKey(winner), wallet.publicKey, setup);
   if (setup.length) await send(setup, wallet);
-  const ixs: TransactionInstruction[] = [ix("settle_draw", [
+  const ixs = [ix("settle_draw", [
     account(wallet.publicKey, false, true), fixedCampaign(c.address), account(new PublicKey(c.prizeVault), true), account(winnerToken, true), tokenProgram(),
     ...positions.map((p) => account(new PublicKey(p.address))),
   ])];
-  let signature = "";
-  for (const batch of settlementBatches(setup, ixs)) signature = await send(batch, wallet);
-  return signature;
+  return send(ixs, wallet);
 }
 
 export async function cancelLossless(c: LosslessCampaign, wallet?: WalletSigner) {

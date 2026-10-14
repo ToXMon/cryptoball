@@ -4,10 +4,10 @@ import { createHash } from "node:crypto";
 import { quickPick, parts, FUNDING_COPY, CLAIM_CAPS, FINISHED_COPY, finishedCopy, sol, fundingCopy } from "./lib.ts";
 import { assertConfirmed as assertProgramConfirmed, payout, ERROR_COPY, buyTicket, ProgramError, PROGRAM_ID, describeError, fundingNeeded, isFundingError, FAUCET_URL, FUNDING_ERROR, DEVNET_RPC, funding, payGate, CLAIM_LIFETIME_CAP, CLAIM_MAX, CLAIM_POOL_CAP, CAMPAIGN_ACCOUNT_DISC, DISCOVERY_CAP, claimGate, campaignAddress, decodeCampaign, decodeTicket, faucetRemaining, iWon, isSettleLog, outcome } from "./program.ts";
 import { readFileSync } from "node:fs";
-import { PublicKey, TransactionInstruction } from "@solana/web3.js";
+import { PublicKey } from "@solana/web3.js";
 import { createBalanceRead, type BalanceState } from "./balance.ts";
 import { accountFromPrfOutput } from "./passkeyWallet.ts";
-import { assertConfirmed as assertLosslessConfirmed, decodeLosslessCampaign, decodeLosslessConfig, decodeLosslessPosition, describeLosslessError, deterministicWinner, estimatedOdds, LOSSLESS_CAMPAIGN_DISC, LOSSLESS_CONFIG_DISC, LOSSLESS_POSITION_DISC, LOSSLESS_PROGRAM_ID, LOSSLESS_USDC_MINT, parseUsdc, settlementBatches, type LosslessPosition } from "./lossless.ts";
+import { assertConfirmed as assertLosslessConfirmed, decodeLosslessCampaign, decodeLosslessConfig, decodeLosslessPosition, describeLosslessError, deterministicWinner, estimatedOdds, LOSSLESS_CAMPAIGN_DISC, LOSSLESS_CONFIG_DISC, LOSSLESS_POSITION_DISC, LOSSLESS_PROGRAM_ID, LOSSLESS_USDC_MINT, parseUsdc, type LosslessPosition } from "./lossless.ts";
 
 // The invariant is "every CryptoballError variant has English copy". Assert it against the real
 // variant list in errors.rs rather than a hardcoded count: a hardcoded number passes happily while
@@ -370,10 +370,6 @@ assert.doesNotMatch(describeLosslessError(new Error('confirmed: {"InstructionErr
 assert.doesNotMatch(describeLosslessError(new Error("Transaction simulation failed: invalid account data for instruction")), /invalid account data/i);
 assert.doesNotThrow(() => assertLosslessConfirmed("sig", { value: { err: null } }));
 assert.throws(() => assertLosslessConfirmed("sig", { value: { err: "InstructionError" } }), /failed after confirmation/);
-const setupIx = new TransactionInstruction({ programId: LOSSLESS_PROGRAM_ID });
-const settlementIx = new TransactionInstruction({ programId: LOSSLESS_PROGRAM_ID });
-assert.equal(settlementBatches([], [settlementIx]).length, 1);
-assert.deepEqual(settlementBatches([setupIx], [settlementIx]), [[setupIx], [settlementIx]]);
 assert.throws(() => decodeLosslessCampaign("bad", new Uint8Array(220)), /Campaign account/);
 const positionBytes = new Uint8Array(90); positionBytes.set(LOSSLESS_POSITION_DISC); positionBytes.set(adminKey.toBytes(), 8); positionBytes.set(adminKey.toBytes(), 40);
 new DataView(positionBytes.buffer).setBigUint64(72, 1_000_000n, true); new DataView(positionBytes.buffer).setBigUint64(80, 23n, true);
@@ -386,6 +382,8 @@ assert.throws(() => parseUsdc("1.0000001"), /six decimals/); assert.throws(() =>
 const alice: LosslessPosition = { address: "a", campaign: "c", owner: "alice", shares: 1n, eligibleAfterSlot: 23n, withdrawn: false };
 const bob: LosslessPosition = { ...alice, owner: "bob", shares: 3n };
 assert.deepEqual(estimatedOdds(alice, losslessCampaign, 20n), { eligible: false, numerator: 0n, denominator: 2_000_000n });
+assert.deepEqual(estimatedOdds(alice, { ...losslessCampaign, state: "Settled" }, 99n), { eligible: false, numerator: 0n, denominator: 0n });
+assert.deepEqual(estimatedOdds(alice, { ...losslessCampaign, state: "Cancelled" }, 99n), { eligible: false, numerator: 0n, denominator: 0n });
 assert.equal(deterministicWinner([alice, bob], new Array(32).fill(0), 4n), "alice");
 assert.equal(deterministicWinner([alice, bob], [2, ...new Array(31).fill(0)], 4n), "bob");
 assert.throws(() => deterministicWinner([alice, bob], new Array(32).fill(255), 3n), /exhausted/);

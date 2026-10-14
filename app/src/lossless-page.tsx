@@ -61,7 +61,7 @@ function LosslessCampaignCard({ c, admin, slot, revision, refresh }: { c: Lossle
         <dt>Closes</dt><dd>{dateTime(c.closeTs)}</dd>
         {position && !position.withdrawn && <>
           <dt>Your principal shares</dt><dd className="cb-num">{usdc(position.shares)}</dd>
-          <dt>Your estimated draw share</dt><dd className="cb-num">{odds.eligible ? percent(odds.numerator, odds.denominator) : "Not eligible yet"}</dd>
+          {(c.state === "Open" || c.state === "DrawCommitted") && <><dt>Your estimated draw share</dt><dd className="cb-num">{odds.eligible ? percent(odds.numerator, odds.denominator) : "Not eligible yet"}</dd></>}
           <dt>Eligible after slot</dt><dd className="cb-num">{position.eligibleAfterSlot.toString()}</dd>
         </>}
         {c.winner && <><dt>Winner</dt><dd><a className="cb-addr" href={explorer("address", c.winner)} target="_blank" rel="noreferrer">{c.winner}</a></dd></>}
