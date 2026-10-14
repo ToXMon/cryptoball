@@ -347,17 +347,21 @@ describe("lossless-v1 accounting (LiteSVM + devnet SPL Token binary)", () => {
     const principalData = w.data(principal);
     principalData.writeBigUInt64LE(principalData.readBigUInt64LE(64) + 9_000_000n, 64);
     w.save(principal, principalData);
-    w.ok([await w.depositIx(id, alice), await w.depositIx(id, bob), await w.depositIx(id, carol)], [alice, bob, carol]);
-    w.ok([await w.mockLossIx(id, 1_000_000n)], [w.admin]);
-    w.ok([await w.withdrawIx(id, alice)], [alice]);
-    expect(w.balance(aliceToken)).to.equal(5_000_000n);
+    w.ok([
+      await w.depositIx(id, alice, aliceToken, 1n),
+      await w.depositIx(id, bob, bobToken, 1n),
+      await w.depositIx(id, carol, carolToken, 1n),
+    ], [alice, bob, carol]);
+    w.ok([await w.mockLossIx(id, 1n)], [w.admin]);
+    w.ok([await w.withdrawIx(id, alice)], [alice]); // floor(1 * 2 / 3) = 0; the open shortfall stays claimable
+    expect(w.balance(aliceToken)).to.equal(4_999_999n);
     expect(w.acct(campaign.address).shortfall).to.equal(true);
     w.ok([await w.withdrawIx(id, bob)], [bob]);
     w.ok([await w.withdrawIx(id, carol)], [carol]);
-    expect(w.balance(bobToken)).to.equal(6_000_000n);
-    expect(w.balance(carolToken)).to.equal(6_000_000n);
+    expect(w.balance(bobToken)).to.equal(5_000_000n);
+    expect(w.balance(carolToken)).to.equal(5_000_000n);
     const state = w.acct(campaign.address);
-    expect([state.mockValue.toString(), state.principalLiability.toString(), state.positionCount]).to.deep.equal(["0", "0", 0]);
+    expect([state.mockValue.toString(), state.prizeBalance.toString(), state.principalLiability.toString(), state.positionCount]).to.deep.equal(["0", "0", "0", 0]);
     expect(w.balance(principal)).to.equal(9_000_000n);
   });
 
