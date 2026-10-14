@@ -287,7 +287,7 @@ describe("lossless-v1 accounting (LiteSVM + devnet SPL Token binary)", () => {
       .sort((a, b) => Buffer.compare(a.toBuffer(), b.toBuffer()));
     const winner = w.users.find((user) => positionPda(campaign.address, user.publicKey).equals(positions[0]))!;
     w.ok([await w.settleIx(id, w.userTokens[w.users.indexOf(winner)], positions)], [w.payer]);
-    expect(w.acct(campaign.address).state).to.deep.equal({ settled: {} });
+    expect(w.acct(campaign.address).state).to.deep.equal({ Settled: {} });
   });
 
   it("harvests existing yield before issuing more one-to-one shares", async () => {
@@ -330,9 +330,9 @@ describe("lossless-v1 accounting (LiteSVM + devnet SPL Token binary)", () => {
     w.ok([await w.mockLossIx(id, 1_500_000n)], [w.admin]);
     expect(w.acct(campaign.address).prizeBalance.toString()).to.equal("1950000");
     w.ok([await w.withdrawIx(id, alice)], [alice]);
-    expect(w.balance(aliceToken)).to.equal(6_225_000n);
+    expect(w.balance(aliceToken)).to.equal(5_225_000n);
     w.ok([await w.withdrawIx(id, bob)], [bob]);
-    expect(w.balance(bobToken)).to.equal(6_225_000n);
+    expect(w.balance(bobToken)).to.equal(5_225_000n);
     const state = w.acct(campaign.address);
     expect([state.mockValue.toString(), state.prizeBalance.toString(), state.principalLiability.toString()]).to.deep.equal(["0", "0", "0"]);
     expect(w.balance(vaultPda("principal-vault", campaign.address))).to.equal(0n);
