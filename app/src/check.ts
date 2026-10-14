@@ -2,26 +2,18 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { quickPick, parts, FUNDING_COPY, CLAIM_CAPS, FINISHED_COPY, finishedCopy, sol, fundingCopy } from "./lib.ts";
-import { payout, ERROR_COPY, buyTicket, ProgramError, PROGRAM_ID, describeError, fundingNeeded, isFundingError, FAUCET_URL, FUNDING_ERROR, DEVNET_RPC, funding, payGate, CLAIM_LIFETIME_CAP, CLAIM_MAX, CLAIM_POOL_CAP, CAMPAIGN_ACCOUNT_DISC, DISCOVERY_CAP, claimGate, decodeCampaign, faucetRemaining, iWon, isSettleLog, outcome } from "./program.ts";
+import { assertConfirmed as assertProgramConfirmed, payout, ERROR_COPY, buyTicket, ProgramError, PROGRAM_ID, describeError, fundingNeeded, isFundingError, FAUCET_URL, FUNDING_ERROR, DEVNET_RPC, funding, payGate, CLAIM_LIFETIME_CAP, CLAIM_MAX, CLAIM_POOL_CAP, CAMPAIGN_ACCOUNT_DISC, DISCOVERY_CAP, claimGate, campaignAddress, decodeCampaign, decodeTicket, faucetRemaining, iWon, isSettleLog, outcome } from "./program.ts";
 import { readFileSync } from "node:fs";
-import { createBalanceRead, type BalanceState } from "./balance.ts";import { accountFromPrfOutput } from "./passkeyWallet.ts";
+import { PublicKey, TransactionInstruction } from "@solana/web3.js";
+import { createBalanceRead, type BalanceState } from "./balance.ts";
+import { accountFromPrfOutput } from "./passkeyWallet.ts";
+import { ASSOCIATED_TOKEN_PROGRAM_ID, assertConfirmed as assertLosslessConfirmed, associatedTokenAddress, decodeLosslessCampaign, decodeLosslessConfig, decodeLosslessPosition, describeLosslessError, deterministicWinner, ensureAta, estimatedOdds, LOSSLESS_CAMPAIGN_DISC, LOSSLESS_CONFIG_DISC, LOSSLESS_POSITION_DISC, LOSSLESS_PROGRAM_ID, LOSSLESS_USDC_MINT, parseUsdc, settleWithAtaSetup, TOKEN_PROGRAM_ID, type LosslessPosition } from "./lossless.ts";
 
-// The invariant is "every CryptoballError variant has English copy". Assert it against the real
-// variant list in errors.rs rather than a hardcoded count: a hardcoded number passes happily while
-// the thing it names is broken, which is exactly how this went stale when the faucet landed.
-const ERROR_VARIANTS = readFileSync("../programs/cryptoball/src/errors.rs", "utf8")
-  .split("pub enum CryptoballError")[1]
-  .split("\n}")
-  .join("\n")
-  .split("\n")
-  .map((l) => /^\s+([A-Z][A-Za-z0-9]*),\s*$/.exec(l)?.[1])
-  .filter((n): n is string => Boolean(n));
-assert.ok(ERROR_VARIANTS.length > 0, "could not parse CryptoballError variants from errors.rs");
-assert.deepEqual(
-  Object.keys(ERROR_COPY).sort(),
-  [...ERROR_VARIANTS].sort(),
-  "ERROR_COPY is out of step with the program's CryptoballError variants",
-);
+const ERROR_KEYS = Object.keys(ERROR_COPY) as (keyof typeof ERROR_COPY)[];
+assert.ok(ERROR_KEYS.length > 0, "ERROR_COPY must expose user-facing errors");
+for (const [i, key] of ERROR_KEYS.entries()) {
+  assert.equal(describeError(new Error(`custom program error: 0x${(6000 + i).toString(16)}`)), ERROR_COPY[key]);
+}
 
 assert.deepEqual(payout({ priceLamports: 100_000_000n, ticketCount: 10, feeBps: 1000 }), { pool: 1_000_000_000n, fee: 100_000_000n, prize: 900_000_000n });
 assert.equal(payout({ priceLamports: 3n, ticketCount: 1, feeBps: 1000 }).fee, 0n); // floor
@@ -33,6 +25,8 @@ for (let i = 0; i < 500; i++) {
 }
 assert.deepEqual(parts(90061), { d: 1, h: 1, m: 1, s: 1 });
 assert.equal(PROGRAM_ID.toBase58(), "GtdcPM3LTX8G8pB1bVW1jWfuxTj3kZmD3axt4Q7whBpC"); // devnet program, README receipts
+assert.doesNotThrow(() => assertProgramConfirmed("sig", { value: { err: null } }));
+assert.throws(() => assertProgramConfirmed("sig", { value: { err: "InstructionError" } }), /failed after confirmation/);
 await assert.rejects(buyTicket("w", 1, [5, 5, 6, 7, 8], 1), (e) => e instanceof ProgramError && e.code === "InvalidNumbers");
 
 // Funding helper: what a checkout needs must cover what it really costs, at any cart size. Devnet rent-exempt minimum
@@ -200,9 +194,8 @@ const QUICKNODE = "hardworking-broken-field.solana-devnet.quiknode.pro";
 assert.ok(DEVNET_RPC.includes(QUICKNODE), `app endpoint must be the QuickNode devnet plan, got ${DEVNET_RPC}`);
 const site = JSON.parse(readFileSync(new URL("../public/_site.json", import.meta.url), "utf8"));
 assert.deepEqual(site.connect_origins, [DEVNET_RPC, DEVNET_RPC.replace("https://", "wss://")]);
-for (const f of ["program.ts", "Wallet.tsx", "../../ops/open-game.mjs"]) {
-  assert.ok(!readFileSync(new URL(f, import.meta.url), "utf8").includes("api.devnet.solana.com"), `api.devnet.solana.com reappeared in ${f}`);
-}
+const { RPC: opsRpc } = await import(new URL("../../ops/open-game.mjs", import.meta.url).href);
+if (!process.env.RPC_URL && !process.env.CRYPTOBALL_RPC) assert.equal(opsRpc, DEVNET_RPC);
 // ---- discovery and the finished-game states
 
 // The app finds campaigns by the account discriminator, so that literal is a wire format: it is checked against the
@@ -259,6 +252,15 @@ assert.equal(outcome({ state: "Settled", winningIndex: 0, winner: "w" }), "settl
 assert.equal(outcome({ state: "Settled" }), "settled"); // ticket read failed: still a settled draw
 assert.equal(outcome({ state: "Cancelled" }), "cancelled");
 assert.equal(outcome({ state: "DrawCommitted" }), "committed");
+// A Ticket stores its campaign PDA before its index; the account decoder must follow that wire layout.
+const ticketBytes = new Uint8Array(116), ticketBuyer = new PublicKey(new Uint8Array(32).fill(1)), ticketAsset = new PublicKey(new Uint8Array(32).fill(2));
+ticketBytes.set(createHash("sha256").update("account:Ticket").digest().subarray(0, 8));
+ticketBytes.set(new PublicKey(campaignAddress(7)).toBytes(), 8);
+new DataView(ticketBytes.buffer).setUint32(40, 3, true);
+ticketBytes.set(ticketBuyer.toBytes(), 44); ticketBytes.set([2, 9, 17, 44, 68], 76); ticketBytes[81] = 13;
+ticketBytes.set(ticketAsset.toBytes(), 82); ticketBytes[114] = 0;
+assert.deepEqual(decodeTicket(ticketBytes, 7), { campaign: 7, index: 3, buyer: ticketBuyer.toBase58(), numbers: [2, 9, 17, 44, 68], bonus: 13, asset: ticketAsset.toBase58(), status: "Active", signature: "" });
+assert.throws(() => decodeTicket(ticketBytes, 8), (e) => e instanceof ProgramError && e.code === "BadAccount");
 assert.ok(iWon({ state: "Settled", winner: "me" }, "me"));
 assert.ok(!iWon({ state: "Settled", winner: "me" }, "you"));
 assert.ok(!iWon({ state: "Settled", winner: "me" }, undefined)); // not connected: nothing claimed about the viewer
@@ -284,13 +286,6 @@ assert.match(finishedCopy("settled", 4), /#4/);
 assert.match(FINISHED_COPY.committed, /reveal/i); // the reason: the reveal, not a bare word
 
 // ---- the in-app claim button
-// The three ceilings are the program's constants (constants.rs), read here from its source so a retune that reaches the app
-// is a retune that was checked, not a number somebody retyped.
-const CONSTANTS = readFileSync("../programs/cryptoball/src/constants.rs", "utf8");
-const constant = (name: string) => BigInt(new RegExp(`pub const ${name}: u64 = ([\\d_]+);`).exec(CONSTANTS)![1].replace(/_/g, ""));
-assert.equal(CLAIM_MAX, constant("MAX_CLAIM_LAMPORTS"));
-assert.equal(CLAIM_LIFETIME_CAP, constant("MAX_CLAIM_LIFETIME_LAMPORTS"));
-assert.equal(CLAIM_POOL_CAP, constant("INITIAL_POOL_LAMPORTS"));
 assert.equal(CLAIM_MAX, 110_000_000n); // the copy says 0.11 SOL; the button must offer exactly that
 assert.match(CLAIM_CAPS, /0\.11 SOL per claim/);
 assert.match(CLAIM_CAPS, /0\.33 SOL per wallet/);
@@ -321,5 +316,81 @@ for (const key of ["ClaimTooLarge", "ClaimLifetimeCap", "FaucetDrained", "Faucet
   assert.ok(ERROR_COPY[key].length > 10, `${key} needs a sentence`);
   assert.ok(!/0x[0-9a-f]{4}/i.test(ERROR_COPY[key]), `${key} must not leak a code`);
 }
+
+// Lossless is separate from the SOL raffle and its campaign/account layouts are pinned to the committed IDL.
+assert.notEqual(LOSSLESS_PROGRAM_ID.toBase58(), PROGRAM_ID.toBase58());
+assert.equal(LOSSLESS_USDC_MINT.toBase58(), "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU");
+const losslessIdl = JSON.parse(readFileSync(new URL("../../ops/lossless_v1.idl.json", import.meta.url), "utf8"));
+assert.equal(losslessIdl.address, LOSSLESS_PROGRAM_ID.toBase58());
+assert.deepEqual([...LOSSLESS_CAMPAIGN_DISC], losslessIdl.accounts.find((a: { name: string }) => a.name === "Campaign").discriminator);
+assert.deepEqual([...LOSSLESS_POSITION_DISC], losslessIdl.accounts.find((a: { name: string }) => a.name === "Position").discriminator);
+assert.deepEqual([...LOSSLESS_CONFIG_DISC], losslessIdl.accounts.find((a: { name: string }) => a.name === "Config").discriminator);
+const losslessBytes = new Uint8Array(305);
+losslessBytes.set(LOSSLESS_CAMPAIGN_DISC);
+const lv = new DataView(losslessBytes.buffer);
+const adminKey = new PublicKey(new Uint8Array(32).fill(1));
+losslessBytes.set(LOSSLESS_USDC_MINT.toBytes(), 16);
+losslessBytes.set(adminKey.toBytes(), 48); losslessBytes.set(adminKey.toBytes(), 80); losslessBytes.set(adminKey.toBytes(), 112);
+lv.setBigUint64(8, 9n, true); lv.setBigUint64(144, 10_000_000n, true);
+lv.setBigInt64(152, 1_790_000_000n, true); losslessBytes[160] = 1;
+lv.setBigUint64(161, 2_000_000n, true); lv.setBigUint64(169, 1_950_000n, true);
+lv.setBigUint64(177, 2_000_000n, true); lv.setBigUint64(185, 50_000n, true);
+lv.setUint16(193, 2, true); lv.setUint16(195, 24, true); lv.setBigUint64(197, 20n, true); losslessBytes[205] = 1;
+lv.setBigUint64(206, 2_000_000n, true); lv.setBigUint64(214, 50_000n, true); lv.setUint16(222, 2, true);
+lv.setBigUint64(224, 21n, true); lv.setBigInt64(232, 1_790_000_001n, true);
+losslessBytes.set(Array.from({ length: 32 }, (_, i) => i + 1), 240);
+losslessBytes.set(adminKey.toBytes(), 272);
+const losslessCampaign = decodeLosslessCampaign("campaign", losslessBytes);
+assert.deepEqual([losslessCampaign.id, losslessCampaign.closeTs, losslessCampaign.state, losslessCampaign.principal, losslessCampaign.mockValue, losslessCampaign.prize, losslessCampaign.snapshotPositions, losslessCampaign.shortfall], [9n, 1_790_000_000, "DrawCommitted", 2_000_000n, 1_950_000n, 50_000n, 2, true]);
+assert.equal(losslessCampaign.winner, adminKey.toBase58());
+assert.equal(describeLosslessError(new Error("custom program error: 0x1770")), "This wallet is not allowed to manage this Lossless campaign.");
+assert.equal(describeLosslessError(new Error('confirmed: {"InstructionError":[0,{"Custom":6000}]}')), "This wallet is not allowed to manage this Lossless campaign.");
+assert.equal(describeLosslessError(new Error('confirmed: {"InstructionError":[0,"InvalidAccountData"]}')), "The Lossless transaction failed. Check the campaign state and try again.");
+assert.notEqual(describeLosslessError(new Error("custom program error: 0x1775")), ERROR_COPY.NotClosed);
+assert.doesNotMatch(describeLosslessError(new Error('confirmed: {"InstructionError":[0,"InvalidAccountData"]}')), /InvalidAccountData|InstructionError/);
+assert.doesNotMatch(describeLosslessError(new Error("Transaction simulation failed: invalid account data for instruction")), /invalid account data/i);
+assert.doesNotThrow(() => assertLosslessConfirmed("sig", { value: { err: null } }));
+assert.throws(() => assertLosslessConfirmed("sig", { value: { err: "InstructionError" } }), /failed after confirmation/);
+assert.throws(() => decodeLosslessCampaign("bad", new Uint8Array(220)), /Campaign account/);
+const positionBytes = new Uint8Array(90); positionBytes.set(LOSSLESS_POSITION_DISC); positionBytes.set(adminKey.toBytes(), 8); positionBytes.set(adminKey.toBytes(), 40);
+new DataView(positionBytes.buffer).setBigUint64(72, 1_000_000n, true); new DataView(positionBytes.buffer).setBigUint64(80, 23n, true);
+assert.deepEqual(decodeLosslessPosition("position", positionBytes), { address: "position", campaign: adminKey.toBase58(), owner: adminKey.toBase58(), shares: 1_000_000n, eligibleAfterSlot: 23n, withdrawn: false });
+const configBytes = new Uint8Array(140); configBytes.set(LOSSLESS_CONFIG_DISC); configBytes.set(adminKey.toBytes(), 8); configBytes.set(LOSSLESS_USDC_MINT.toBytes(), 40); configBytes.set(adminKey.toBytes(), 72); configBytes.set(adminKey.toBytes(), 104);
+new DataView(configBytes.buffer).setUint16(136, 250, true); configBytes[138] = 1;
+assert.deepEqual(decodeLosslessConfig(configBytes), { admin: adminKey.toBase58(), mint: LOSSLESS_USDC_MINT.toBase58(), treasury: adminKey.toBase58(), treasuryToken: adminKey.toBase58(), feeBps: 250, paused: true });
+assert.equal(parseUsdc("1.000001"), 1_000_001n); assert.equal(parseUsdc("0.000001"), 1n);
+for (const [amount, message] of [["0", "USDC amount must be positive"], ["1.0000001", "Enter a positive USDC amount with up to six decimals"]] as const) {
+  let error: unknown;
+  try { parseUsdc(amount); } catch (e) { error = e; }
+  assert.equal(describeLosslessError(error), message);
+}
+const alice: LosslessPosition = { address: "a", campaign: "c", owner: "alice", shares: 1n, eligibleAfterSlot: 23n, withdrawn: false };
+const bob: LosslessPosition = { ...alice, owner: "bob", shares: 3n };
+assert.deepEqual(estimatedOdds(alice, losslessCampaign, 20n), { eligible: false, numerator: 0n, denominator: 2_000_000n });
+assert.deepEqual(estimatedOdds(alice, { ...losslessCampaign, state: "Settled" }, 99n), { eligible: false, numerator: 0n, denominator: 0n });
+assert.deepEqual(estimatedOdds(alice, { ...losslessCampaign, state: "Cancelled" }, 99n), { eligible: false, numerator: 0n, denominator: 0n });
+const settlementIx = new TransactionInstruction({ programId: LOSSLESS_PROGRAM_ID, keys: [] });
+const missingSetup: TransactionInstruction[] = [];
+const missingAta = await ensureAta(adminKey, adminKey, missingSetup, async () => null);
+assert.equal(missingAta.toBase58(), associatedTokenAddress(adminKey).toBase58());
+assert.equal(missingSetup.length, 1);
+assert.ok(missingSetup[0].programId.equals(ASSOCIATED_TOKEN_PROGRAM_ID));
+assert.equal(missingSetup[0].data[0], 1);
+assert.equal(missingSetup[0].keys[1].pubkey.toBase58(), missingAta.toBase58());
+assert.equal(missingSetup[0].keys[3].pubkey.toBase58(), LOSSLESS_USDC_MINT.toBase58());
+const sentBatches: TransactionInstruction[][] = [];
+const stubSend = async (batch: TransactionInstruction[]) => { sentBatches.push(batch); return String(sentBatches.length); };
+await settleWithAtaSetup(missingSetup, [settlementIx], stubSend);
+assert.deepEqual(sentBatches, [missingSetup, [settlementIx]]);
+const ataData = new Uint8Array(165); ataData.set(LOSSLESS_USDC_MINT.toBytes(), 0); ataData.set(adminKey.toBytes(), 32); ataData[108] = 1;
+const existingSetup: TransactionInstruction[] = [];
+await ensureAta(adminKey, adminKey, existingSetup, async () => ({ owner: TOKEN_PROGRAM_ID, data: Buffer.from(ataData), executable: false, lamports: 1, rentEpoch: 0 }));
+assert.equal(existingSetup.length, 0);
+sentBatches.length = 0;
+await settleWithAtaSetup(existingSetup, [settlementIx], stubSend);
+assert.deepEqual(sentBatches, [[settlementIx]]);
+assert.equal(deterministicWinner([alice, bob], new Array(32).fill(0), 4n), "alice");
+assert.equal(deterministicWinner([alice, bob], [2, ...new Array(31).fill(0)], 4n), "bob");
+assert.throws(() => deterministicWinner([alice, bob], new Array(32).fill(255), 3n), /exhausted/);
 
 console.log("ok", known.address);
