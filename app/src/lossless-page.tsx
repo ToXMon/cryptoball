@@ -45,6 +45,12 @@ function LosslessCampaignCard({ c, admin, slot, revision, refresh }: { c: Lossle
     } catch (e) { setError(e); }
     finally { setBusy(undefined); }
   };
+  const deposit = () => {
+    let value: bigint;
+    try { value = parseUsdc(amount); }
+    catch (e) { setError(e); setNotice(undefined); return; }
+    void transact("Deposit", () => depositLossless(c, me ?? "", value, wallet));
+  };
 
   return (
     <article className="cb-card" data-campaign={c.address}>
@@ -72,7 +78,7 @@ function LosslessCampaignCard({ c, admin, slot, revision, refresh }: { c: Lossle
       <div className="cb-row">
         {c.state === "Open" && !closed && <>
           <label className="cb-field"><span>Deposit (USDC)</span><input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} /></label>
-          <button className="cb-btn cb-btn--primary" disabled={!!busy || c.shortfall} onClick={() => void transact("Deposit", async () => depositLossless(c, me ?? "", parseUsdc(amount), wallet))}>{busy === "Deposit" ? "Depositing…" : "Enter draw"}</button>
+          <button className="cb-btn cb-btn--primary" disabled={!!busy || c.shortfall} onClick={deposit}>{busy === "Deposit" ? "Depositing…" : "Enter draw"}</button>
         </>}
         {admin != null && admin === me && c.state === "Open" && !closed && <>
           <button className="cb-btn cb-btn--ghost" disabled={!!busy} onClick={() => void transact("Mock accrual", () => mockAccrueLossless(c, admin, 1_000_000n, wallet))}>{busy === "Mock accrual" ? "Funding…" : "+1 USDC mock accrual"}</button>
