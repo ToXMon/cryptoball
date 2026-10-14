@@ -339,6 +339,28 @@ describe("lossless-v1 accounting (LiteSVM + devnet SPL Token binary)", () => {
     expect(w.balance(vaultPda("prize-vault", campaign.address))).to.equal(0n);
   });
 
+  it("keeps rounded open shortfall exits available and excludes donations", async () => {
+    const w = new LosslessWorld(); await w.init();
+    const id = 12n; const campaign = await w.campaign(id);
+    const [alice, bob, carol] = w.users; const [aliceToken, bobToken, carolToken] = w.userTokens;
+    const principal = vaultPda("principal-vault", campaign.address);
+    const principalData = w.data(principal);
+    principalData.writeBigUInt64LE(principalData.readBigUInt64LE(64) + 9_000_000n, 64);
+    w.save(principal, principalData);
+    w.ok([await w.depositIx(id, alice), await w.depositIx(id, bob), await w.depositIx(id, carol)], [alice, bob, carol]);
+    w.ok([await w.mockLossIx(id, 1_000_000n)], [w.admin]);
+    w.ok([await w.withdrawIx(id, alice)], [alice]);
+    expect(w.balance(aliceToken)).to.equal(5_000_000n);
+    expect(w.acct(campaign.address).shortfall).to.equal(true);
+    w.ok([await w.withdrawIx(id, bob)], [bob]);
+    w.ok([await w.withdrawIx(id, carol)], [carol]);
+    expect(w.balance(bobToken)).to.equal(6_000_000n);
+    expect(w.balance(carolToken)).to.equal(6_000_000n);
+    const state = w.acct(campaign.address);
+    expect([state.mockValue.toString(), state.principalLiability.toString(), state.positionCount]).to.deep.equal(["0", "0", 0]);
+    expect(w.balance(principal)).to.equal(9_000_000n);
+  });
+
   it("clears shortfall only when mock assets restore full principal and then permits a draw", async () => {
     const w = new LosslessWorld(); await w.init();
     const id = 5n; const campaign = await w.campaign(id);
