@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import { PublicKey, TransactionInstruction } from "@solana/web3.js";
 import { createBalanceRead, type BalanceState } from "./balance.ts";
 import { accountFromPrfOutput } from "./passkeyWallet.ts";
-import { assertConfirmed as assertLosslessConfirmed, decodeLosslessCampaign, decodeLosslessConfig, decodeLosslessPosition, describeLosslessError, deterministicWinner, estimatedOdds, LOSSLESS_CAMPAIGN_DISC, LOSSLESS_CONFIG_DISC, LOSSLESS_POSITION_DISC, LOSSLESS_PROGRAM_ID, LOSSLESS_USDC_MINT, parseUsdc, settleWithAtaSetup, type LosslessPosition } from "./lossless.ts";
+import { ASSOCIATED_TOKEN_PROGRAM_ID, assertConfirmed as assertLosslessConfirmed, associatedTokenAddress, decodeLosslessCampaign, decodeLosslessConfig, decodeLosslessPosition, describeLosslessError, deterministicWinner, ensureAta, estimatedOdds, LOSSLESS_CAMPAIGN_DISC, LOSSLESS_CONFIG_DISC, LOSSLESS_POSITION_DISC, LOSSLESS_PROGRAM_ID, LOSSLESS_USDC_MINT, parseUsdc, settleWithAtaSetup, TOKEN_PROGRAM_ID, type LosslessPosition } from "./lossless.ts";
 
 // The invariant is "every CryptoballError variant has English copy". Assert it against the real
 // variant list in errors.rs rather than a hardcoded count: a hardcoded number passes happily while
@@ -384,14 +384,25 @@ const bob: LosslessPosition = { ...alice, owner: "bob", shares: 3n };
 assert.deepEqual(estimatedOdds(alice, losslessCampaign, 20n), { eligible: false, numerator: 0n, denominator: 2_000_000n });
 assert.deepEqual(estimatedOdds(alice, { ...losslessCampaign, state: "Settled" }, 99n), { eligible: false, numerator: 0n, denominator: 0n });
 assert.deepEqual(estimatedOdds(alice, { ...losslessCampaign, state: "Cancelled" }, 99n), { eligible: false, numerator: 0n, denominator: 0n });
-const setupIx = new TransactionInstruction({ programId: LOSSLESS_PROGRAM_ID });
 const settlementIx = new TransactionInstruction({ programId: LOSSLESS_PROGRAM_ID });
+const missingSetup: TransactionInstruction[] = [];
+const missingAta = await ensureAta(adminKey, adminKey, missingSetup, async () => null);
+assert.equal(missingAta.toBase58(), associatedTokenAddress(adminKey).toBase58());
+assert.equal(missingSetup.length, 1);
+assert.ok(missingSetup[0].programId.equals(ASSOCIATED_TOKEN_PROGRAM_ID));
+assert.equal(missingSetup[0].data[0], 1);
+assert.equal(missingSetup[0].keys[1].pubkey.toBase58(), missingAta.toBase58());
+assert.equal(missingSetup[0].keys[3].pubkey.toBase58(), LOSSLESS_USDC_MINT.toBase58());
 const sentBatches: TransactionInstruction[][] = [];
 const stubSend = async (batch: TransactionInstruction[]) => { sentBatches.push(batch); return String(sentBatches.length); };
-await settleWithAtaSetup([setupIx], [settlementIx], stubSend);
-assert.deepEqual(sentBatches, [[setupIx], [settlementIx]]);
+await settleWithAtaSetup(missingSetup, [settlementIx], stubSend);
+assert.deepEqual(sentBatches, [missingSetup, [settlementIx]]);
+const ataData = Buffer.alloc(165); LOSSLESS_USDC_MINT.toBuffer().copy(ataData, 0); adminKey.toBuffer().copy(ataData, 32); ataData[108] = 1;
+const existingSetup: TransactionInstruction[] = [];
+await ensureAta(adminKey, adminKey, existingSetup, async () => ({ owner: TOKEN_PROGRAM_ID, data: ataData }));
+assert.equal(existingSetup.length, 0);
 sentBatches.length = 0;
-await settleWithAtaSetup([], [settlementIx], stubSend);
+await settleWithAtaSetup(existingSetup, [settlementIx], stubSend);
 assert.deepEqual(sentBatches, [[settlementIx]]);
 assert.equal(deterministicWinner([alice, bob], new Array(32).fill(0), 4n), "alice");
 assert.equal(deterministicWinner([alice, bob], [2, ...new Array(31).fill(0)], 4n), "bob");

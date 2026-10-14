@@ -1,4 +1,4 @@
-import { Connection, PublicKey, SystemProgram, Transaction, TransactionInstruction } from "@solana/web3.js";
+import { Connection, PublicKey, SystemProgram, Transaction, TransactionInstruction, type AccountInfo } from "@solana/web3.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { base58, DEVNET_RPC, type WalletSigner } from "./program.ts";
 
@@ -233,9 +233,14 @@ const account = (pubkey: PublicKey, writable = false, signer = false) => ({ pubk
 const tokenIx = (data: number[], keys: { pubkey: PublicKey; isSigner?: boolean; isWritable?: boolean }[]) =>
   new TransactionInstruction({ programId: ASSOCIATED_TOKEN_PROGRAM_ID, keys: keys.map(({ pubkey, isSigner = false, isWritable = false }) => ({ pubkey, isSigner, isWritable })), data: new Uint8Array(data) as Buffer });
 
-async function ensureAta(owner: PublicKey, payer: PublicKey, ixs: TransactionInstruction[]) {
+export async function ensureAta(
+  owner: PublicKey,
+  payer: PublicKey,
+  ixs: TransactionInstruction[],
+  lookup: (address: PublicKey) => Promise<AccountInfo<Buffer> | null> = (address) => connection.getAccountInfo(address, "confirmed"),
+) {
   const ata = associatedTokenAddress(owner);
-  const current = await connection.getAccountInfo(ata, "confirmed");
+  const current = await lookup(ata);
   if (!current) {
     // Associated Token Program CreateIdempotent, so simultaneous first-use attempts are safe.
     ixs.push(tokenIx([1], [account(payer, true, true), account(ata, true), account(owner), account(LOSSLESS_USDC_MINT), account(SystemProgram.programId), account(TOKEN_PROGRAM_ID)]));
