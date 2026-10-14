@@ -230,15 +230,15 @@ function ix(name: string, keys: { pubkey: PublicKey; isSigner?: boolean; isWrita
   });
 }
 const account = (pubkey: PublicKey, writable = false, signer = false) => ({ pubkey, isWritable: writable, isSigner: signer });
-const tokenIx = (name: string, data: number[], keys: { pubkey: PublicKey; isSigner?: boolean; isWritable?: boolean }[]) =>
-  new TransactionInstruction({ programId: name === "associated" ? ASSOCIATED_TOKEN_PROGRAM_ID : TOKEN_PROGRAM_ID, keys: keys.map(({ pubkey, isSigner = false, isWritable = false }) => ({ pubkey, isSigner, isWritable })), data: new Uint8Array(data) as Buffer });
+const tokenIx = (data: number[], keys: { pubkey: PublicKey; isSigner?: boolean; isWritable?: boolean }[]) =>
+  new TransactionInstruction({ programId: ASSOCIATED_TOKEN_PROGRAM_ID, keys: keys.map(({ pubkey, isSigner = false, isWritable = false }) => ({ pubkey, isSigner, isWritable })), data: new Uint8Array(data) as Buffer });
 
 async function ensureAta(owner: PublicKey, payer: PublicKey, ixs: TransactionInstruction[]) {
   const ata = associatedTokenAddress(owner);
   const current = await connection.getAccountInfo(ata, "confirmed");
   if (!current) {
     // Associated Token Program CreateIdempotent, so simultaneous first-use attempts are safe.
-    ixs.push(tokenIx("associated", [1], [account(payer, true, true), account(ata, true), account(owner), account(LOSSLESS_USDC_MINT), account(SystemProgram.programId), account(TOKEN_PROGRAM_ID)]));
+    ixs.push(tokenIx([1], [account(payer, true, true), account(ata, true), account(owner), account(LOSSLESS_USDC_MINT), account(SystemProgram.programId), account(TOKEN_PROGRAM_ID)]));
   } else {
     const data = new Uint8Array(current.data);
     if (current.owner.toBase58() !== TOKEN_PROGRAM_ID.toBase58() || data.length !== 165 || data[108] !== 1 || readKey(data, 0).toBase58() !== LOSSLESS_USDC_MINT.toBase58() || readKey(data, 32).toBase58() !== owner.toBase58()) {
