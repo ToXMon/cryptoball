@@ -62,17 +62,30 @@ export function WalletChip() {
  * The one devnet balance read behind every funding surface: it lives above them all, so the wallet dialog card and the
  * checkout card read the same value of the same wallet instead of racing two `getBalance` calls that can disagree.
  * `createBalanceRead` (balance.ts) owns what a read may claim and in what order; this binds it to one address, reads
- * whenever that address changes, and hands out the landing only while it is the landing of the address in hand, so a read
- * for the wallet the user just switched away from can never speak for the new one. `read` is rebuilt with the address and
- * this effect is the one that fires on a wallet switch, so a surface that reads for a reason of its own keys those to that
- * reason and not to `read`, which would send the same read twice. `funding` turns all that into what a card shows.
+ * on wallet switches and periodically while connected, and hands out the landing only while it is the landing of the
+ * address in hand, so a read for the wallet the user just switched away from can never speak for the new one. `read` is
+ * rebuilt with the address and this effect also refreshes on focus/visibility, so sent funds appear without a manual recheck.
+ * A surface that reads for a reason of its own keys that read to its reason, not to `read`, avoiding a duplicate read.
+ * `funding` turns all that into what a card shows.
  */
 export function useBalance(address?: string): WalletBalance {
   const [st, setSt] = useState<BalanceState>({ reading: false });
   const publish = useCallback((patch: Partial<BalanceState>) => setSt((s) => ({ ...s, ...patch })), []);
   const [reader] = useState(() => createBalanceRead(publish));
   const read = useCallback(() => { void reader.read(address); }, [reader, address]);
-  useEffect(() => { read(); }, [read]);
+  useEffect(() => {
+    read();
+    if (!address) return;
+    const refresh = () => { if (document.visibilityState === "visible") read(); };
+    const timer = window.setInterval(refresh, 15_000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [address, read]);
   const held = st.landing?.address === address ? st.landing : undefined;
   return { address, balance: held?.balance, unreadable: held?.unreadable ?? false, reading: st.reading, read };
 }
