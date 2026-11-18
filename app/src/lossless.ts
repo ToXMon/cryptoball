@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 import { Connection, PublicKey, SystemProgram, Transaction, TransactionInstruction, type AccountInfo } from "@solana/web3.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { base58, DEVNET_RPC, type WalletSigner } from "./program.ts";
@@ -65,29 +64,15 @@ export function describeLosslessError(e: unknown): string {
 export function assertConfirmed(signature: string, result: { value: { err: unknown } }) {
   if (result.value.err != null) throw new Error(`Lossless transaction ${signature} failed after confirmation: ${JSON.stringify(result.value.err)}`);
 }
-=======
-import { Connection, PublicKey } from "@solana/web3.js";
-import { sha256 } from "@noble/hashes/sha2.js";
-import { base58, DEVNET_RPC } from "./program.ts";
-
-export const LOSSLESS_PROGRAM_ID = new PublicKey("EcFzauTsYV41yUFxnJtx17fz4awZnGRaQKtZWiBF69VF");
-export const LOSSLESS_USDC_MINT = new PublicKey("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU");
-export const LOSSLESS_CAMPAIGN_DISC = sha256(new TextEncoder().encode("account:Campaign")).slice(0, 8);
-const connection = new Connection(DEVNET_RPC, "confirmed");
-const STATES = ["Open", "DrawCommitted", "Settled", "Cancelled"] as const;
->>>>>>> 6858b3b (feat: add lossless v1 devnet mock prototype)
 
 export interface LosslessCampaign {
   address: string;
   id: bigint;
-<<<<<<< HEAD
   mint: string;
   principalVault: string;
   prizeVault: string;
   lossVault: string;
   principalCap: bigint;
-=======
->>>>>>> 6858b3b (feat: add lossless v1 devnet mock prototype)
   closeTs: number;
   state: typeof STATES[number];
   principal: bigint;
@@ -96,7 +81,6 @@ export interface LosslessCampaign {
   prize: bigint;
   positions: number;
   maxPositions: number;
-<<<<<<< HEAD
   lastDepositSlot: bigint;
   shortfall: boolean;
   snapshotShares: bigint;
@@ -121,18 +105,10 @@ export interface LosslessConfig { admin: string; mint: string; treasury: string;
 
 export function decodeLosslessCampaign(address: string, bytes: Uint8Array): LosslessCampaign {
   if (bytes.length < 305 || !same(bytes, LOSSLESS_CAMPAIGN_DISC)) throw new Error("Not a lossless-v1 Campaign account");
-=======
-  shortfall: boolean;
-}
-
-export function decodeLosslessCampaign(address: string, bytes: Uint8Array): LosslessCampaign {
-  if (bytes.length < 206 || !LOSSLESS_CAMPAIGN_DISC.every((b, i) => bytes[i] === b)) throw new Error("Not a lossless-v1 Campaign account");
->>>>>>> 6858b3b (feat: add lossless v1 devnet mock prototype)
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let offset = 8;
   const u8 = () => view.getUint8(offset++);
   const u16 = () => { const n = view.getUint16(offset, true); offset += 2; return n; };
-<<<<<<< HEAD
   const u64 = () => { const n = readU64(view, offset); offset += 8; return n; };
   const i64 = () => { const n = view.getBigInt64(offset, true); offset += 8; return n; };
   const key = () => { const value = readKey(bytes, offset).toBase58(); offset += 32; return value; };
@@ -143,17 +119,6 @@ export function decodeLosslessCampaign(address: string, bytes: Uint8Array): Loss
   const lossVault = key();
   if (mint !== LOSSLESS_USDC_MINT.toBase58()) throw new Error("Lossless campaign does not use the pinned devnet USDC mint");
   const principalCap = u64();
-=======
-  const u64 = () => { const n = view.getBigUint64(offset, true); offset += 8; return n; };
-  const i64 = () => { const n = view.getBigInt64(offset, true); offset += 8; return n; };
-  const skip = (n: number) => { offset += n; };
-  const id = u64();
-  const mint = new PublicKey(bytes.slice(offset, offset + 32));
-  offset += 32;
-  if (!mint.equals(LOSSLESS_USDC_MINT)) throw new Error("Unexpected lossless-v1 campaign mint");
-  skip(32 * 3); // the three isolated token vaults
-  skip(8); // principal cap
->>>>>>> 6858b3b (feat: add lossless v1 devnet mock prototype)
   const closeTs = Number(i64());
   const state = STATES[u8()];
   if (!state) throw new Error("Unknown lossless-v1 campaign state");
@@ -163,7 +128,6 @@ export function decodeLosslessCampaign(address: string, bytes: Uint8Array): Loss
   const prize = u64();
   const positions = u16();
   const maxPositions = u16();
-<<<<<<< HEAD
   const lastDepositSlot = u64();
   const shortfall = u8() !== 0;
   const snapshotShares = u64();
@@ -199,11 +163,6 @@ export function decodeLosslessConfig(bytes: Uint8Array): LosslessConfig {
     feeBps: new DataView(bytes.buffer, bytes.byteOffset + 136, 2).getUint16(0, true),
     paused: bytes[138] !== 0,
   };
-=======
-  skip(8); // last deposit slot
-  const shortfall = u8() !== 0;
-  return { address, id, closeTs, state, principal, mockValue, shares, prize, positions, maxPositions, shortfall };
->>>>>>> 6858b3b (feat: add lossless v1 devnet mock prototype)
 }
 
 export async function discoverLosslessCampaigns() {
@@ -213,7 +172,6 @@ export async function discoverLosslessCampaigns() {
   });
   const campaigns = accounts.map(({ pubkey, account }) => decodeLosslessCampaign(pubkey.toBase58(), new Uint8Array(account.data)));
   campaigns.sort((a, b) => a.closeTs - b.closeTs);
-<<<<<<< HEAD
   return { campaigns: campaigns.slice(-100).reverse(), found: campaigns.length, truncated: campaigns.length > 100, slot: BigInt(await connection.getSlot("confirmed")) };
 }
 
@@ -420,9 +378,3 @@ export async function withdrawLossless(c: LosslessCampaign, owner: string, walle
   ]));
   return send(ixs, wallet);
 }
-=======
-  return { campaigns: campaigns.slice(-100).reverse(), found: campaigns.length, truncated: campaigns.length > 100 };
-}
-
-export const usdc = (amount: bigint) => `${amount / 1_000_000n}.${(amount % 1_000_000n).toString().padStart(6, "0")} USDC`;
->>>>>>> 6858b3b (feat: add lossless v1 devnet mock prototype)
