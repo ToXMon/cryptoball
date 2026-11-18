@@ -1,3 +1,5 @@
+#![allow(unexpected_cfgs)]
+
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::{
     instruction::{AccountMeta, Instruction},
@@ -217,7 +219,10 @@ pub mod lossless_v1 {
     pub fn mock_loss(ctx: Context<MockLoss>, amount: u64) -> Result<()> {
         require!(amount > 0, E::ZeroAmount);
         let c = &mut ctx.accounts.campaign;
-        require!(c.state == CampaignState::Open, E::WrongState);
+        require!(
+            matches!(c.state, CampaignState::Open | CampaignState::DrawCommitted),
+            E::WrongState
+        );
         let value = c.mock_value.checked_sub(amount).ok_or(E::Shortfall)?;
         campaign_transfer(
             &ctx.accounts.token_program,
@@ -255,15 +260,10 @@ pub mod lossless_v1 {
             c.mint,
             ctx.accounts.config.treasury,
         )?;
-        if c.mock_value < c.principal_liability {
-            c.shortfall = true;
-            emit!(ShortfallDetected {
-                campaign: c.key(),
-                value: c.mock_value,
-                principal: c.principal_liability
-            });
-            return Ok(());
-        }
+        require!(
+            !c.shortfall && c.mock_value >= c.principal_liability,
+            E::Shortfall
+        );
         c.shortfall = false;
         let yield_amount = c
             .mock_value
@@ -334,6 +334,10 @@ pub mod lossless_v1 {
         let c = &mut ctx.accounts.campaign;
         require!(c.state == CampaignState::DrawCommitted, E::WrongState);
         require!(
+            !c.shortfall && c.mock_value >= c.principal_liability,
+            E::Shortfall
+        );
+        require!(
             c.share_supply == c.snapshot_share_supply
                 && c.position_count == c.snapshot_position_count,
             E::BadSnapshot
@@ -403,13 +407,15 @@ pub mod lossless_v1 {
         let c = &mut ctx.accounts.campaign;
         let now = Clock::get()?.unix_timestamp;
         match c.state {
-            CampaignState::Open => require!(now >= c.close_ts, E::Closed),
+            CampaignState::Open => require!(c.shortfall || now >= c.close_ts, E::Closed),
             CampaignState::DrawCommitted => {
-                let deadline = c
-                    .commit_ts
-                    .checked_add(REVEAL_TIMEOUT_SECS)
-                    .ok_or(E::Overflow)?;
-                require!(now > deadline, E::TimeoutNotElapsed);
+                if !c.shortfall {
+                    let deadline = c
+                        .commit_ts
+                        .checked_add(REVEAL_TIMEOUT_SECS)
+                        .ok_or(E::Overflow)?;
+                    require!(now > deadline, E::TimeoutNotElapsed);
+                }
             }
             _ => return err!(E::WrongState),
         }
@@ -450,8 +456,7 @@ pub mod lossless_v1 {
     pub fn withdraw(ctx: Context<Withdraw>) -> Result<()> {
         let c = &mut ctx.accounts.campaign;
         require!(
-            matches!(c.state, CampaignState::Settled | CampaignState::Cancelled)
-                || (c.state == CampaignState::Open && c.shortfall),
+            matches!(c.state, CampaignState::Settled | CampaignState::Cancelled),
             E::WrongState
         );
         let p = &mut ctx.accounts.position;
@@ -463,64 +468,24 @@ pub mod lossless_v1 {
         validate_token_account(&ctx.accounts.principal_vault, c.mint, c.key())?;
         validate_token_account(&ctx.accounts.destination, c.mint, p.owner)?;
         let shares = p.shares;
-        let open_shortfall = c.state == CampaignState::Open && c.shortfall;
-        let tracked_value = if open_shortfall {
-            c.mock_value
-                .checked_add(c.prize_balance)
-                .ok_or(E::Overflow)?
-        } else {
-            c.mock_value
-        };
-        let payout = if open_shortfall && shares == c.principal_liability {
-            tracked_value
-        } else {
-            withdrawal_amount(shares, tracked_value, c.principal_liability)?
-        };
-        let principal_payout = payout.min(c.mock_value);
-        let prize_payout = payout.checked_sub(principal_payout).ok_or(E::Overflow)?;
-        if principal_payout > 0 {
+        let payout = withdrawal_amount(shares, c.mock_value, c.principal_liability)?;
+        if payout > 0 {
             campaign_transfer(
                 &ctx.accounts.token_program,
                 &ctx.accounts.principal_vault,
                 &ctx.accounts.destination,
                 c,
-                principal_payout,
-            )?;
-        }
-        if prize_payout > 0 {
-            validate_token_account(&ctx.accounts.prize_vault, c.mint, c.key())?;
-            campaign_transfer(
-                &ctx.accounts.token_program,
-                &ctx.accounts.prize_vault,
-                &ctx.accounts.destination,
-                c,
-                prize_payout,
+                payout,
             )?;
         }
         c.principal_liability = c
             .principal_liability
             .checked_sub(shares)
             .ok_or(E::Overflow)?;
-        c.mock_value = c
-            .mock_value
-            .checked_sub(principal_payout)
-            .ok_or(E::Overflow)?;
-        c.prize_balance = c
-            .prize_balance
-            .checked_sub(prize_payout)
-            .ok_or(E::Overflow)?;
+        c.mock_value = c.mock_value.checked_sub(payout).ok_or(E::Overflow)?;
         c.share_supply = c.share_supply.checked_sub(shares).ok_or(E::Overflow)?;
         c.position_count = c.position_count.checked_sub(1).ok_or(E::Overflow)?;
-        if open_shortfall {
-            if c.principal_liability == 0 && c.mock_value == 0 && c.prize_balance == 0 {
-                c.state = CampaignState::Cancelled;
-                c.shortfall = false;
-            } else {
-                c.shortfall = true;
-            }
-        } else {
-            c.shortfall = c.mock_value < c.principal_liability;
-        }
+        c.shortfall = c.mock_value < c.principal_liability;
         p.shares = 0;
         p.withdrawn = true;
         emit!(Withdrawn {
@@ -737,12 +702,6 @@ pub struct MockLossRecorded {
     pub amount: u64,
     pub value: u64,
     pub shortfall: bool,
-}
-#[event]
-pub struct ShortfallDetected {
-    pub campaign: Pubkey,
-    pub value: u64,
-    pub principal: u64,
 }
 #[event]
 pub struct YieldHarvested {
@@ -967,9 +926,6 @@ pub struct Withdraw<'info> {
     /// CHECK: principal-only vault.
     #[account(mut, address = campaign.principal_vault, seeds = [PRINCIPAL_SEED, campaign.key().as_ref()], bump)]
     pub principal_vault: UncheckedAccount<'info>,
-    /// CHECK: prize-only vault used for open-shortfall withdrawals.
-    #[account(mut, address = campaign.prize_vault, seeds = [PRIZE_SEED, campaign.key().as_ref()], bump)]
-    pub prize_vault: UncheckedAccount<'info>,
     /// CHECK: owner's token account with the configured mint.
     #[account(mut)]
     pub destination: UncheckedAccount<'info>,
